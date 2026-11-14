@@ -8,12 +8,11 @@ Application de test d’infrastructure : connexion au lab, formulaire, messages 
 - [Dockerfile](Dockerfile) · Construit l’image Python et lance Gunicorn.
 - [requirements.txt](requirements.txt) · Versions des dépendances Python de stockage, d’authentification et de formulaires.
 - [init.sql](init.sql) · Crée la table et deux messages lors de l’initialisation d’une base vide.
-- [install.sh](install.sh) · Installe Docker, Compose et OpenSSL sur Ubuntu 24.04 et active le service Docker.
+- [install.sh](install.sh) · Installe Docker et Compose sur Ubuntu 24.04 et active le service Docker.
 - [build.sh](build.sh) · Construit l’image Python sans démarrer l’application.
 - [deploy.sh](deploy.sh) · Prépare les identifiants au premier lancement, démarre les services selon la configuration et vérifie leur santé HTTP.
-- [gen-certif.sh](gen-certif.sh) · Génère un certificat autosigné générique sans saisie ni adresse IP, conserve une paire existante valide et affiche ses informations publiques sans activer HTTPS.
 - [prepare_secrets.py](prepare_secrets.py) · Génère une seule fois les fichiers privés de signature et de mot de passe dans le dossier de déploiement exclu de Git.
-- [config.sh](config.sh) · Choisit le stockage des messages et sessions et la publication réseau ; le cookie sécurisé est imposé dans le code.
+- [config.sh](config.sh) · Choisit le stockage des messages et sessions, la publication réseau et le filtrage Host facultatif.
 - [VERSION](VERSION) · Version de l’application.
 - [security_best_practices_report.md](security_best_practices_report.md) · Revue OWASP, tests de sécurité et limites de validation de l’exposition Internet.
 - [templates/](templates/ABOUT.md) · Pages HTML de connexion et de messages.

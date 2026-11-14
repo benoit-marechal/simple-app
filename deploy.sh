@@ -37,5 +37,4 @@ if [[ "${APP_BIND}" == 0.0.0.0 ]]; then
 else
     printf 'Backend HTTP accessible uniquement sur cet hôte : http://localhost:8080/\n'
 fi
-printf 'Le cookie de session impose HTTPS pour la connexion distante ; raccorder ton point d’entrée HTTPS séparément.\n'
 printf 'Mot de passe commun à consulter localement : sudo cat secrets/password.txt\n'
