@@ -8,31 +8,18 @@ L’application est accessible pendant le TP en HTTP sur l’IP publique de la V
 
 ### Récupérer les sources depuis GitHub
 
-Connecte-toi en SSH à la VM Ubuntu avec ton compte habituel, généralement `ubuntu`. Exécute les commandes suivantes **sur cette VM**, avec un compte disposant de `sudo`. Le [dépôt GitHub est privé](https://github.com/benoit-marechal/simple-app) : il faut lui donner un accès en lecture.
+Connecte-toi en SSH à la VM Ubuntu avec ton compte habituel, généralement `ubuntu`. Exécute les commandes suivantes **sur cette VM**, avec un compte disposant de `sudo`, pour cloner le [dépôt GitHub public](https://github.com/benoit-marechal/simple-app) en HTTPS :
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git openssh-client
-mkdir -p "${HOME}/.ssh"
-chmod 700 "${HOME}/.ssh"
-ssh-keygen -t ed25519 -f "${HOME}/.ssh/simple-app-deploy" -C "simple-app TP"
-cat "${HOME}/.ssh/simple-app-deploy.pub"
-```
-
-Pour ce déploiement manuel, choisis une passphrase à la demande de `ssh-keygen` ; elle sera demandée lors des accès Git. Si cette clé existe déjà, conserve-la et affiche seulement son fichier `.pub` : ne l’écrase pas.
-
-Dans GitHub, ouvre le dépôt → **Settings → Deploy keys → Add deploy key**. Donne un nom indiquant la VM, colle uniquement la clé publique affichée et laisse **Allow write access** décoché. Cette [clé de déploiement](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) donne accès à ce seul dépôt. La clé privée reste sur la VM ; ne la copie pas dans Git, une conversation ou un fichier cloud-init. Révoque la clé dans GitHub à la fin du TP.
-
-Clone ensuite les sources dans `/opt/simple-app` :
-
-```bash
+sudo apt-get install -y git
 sudo mkdir -p /opt/simple-app
 sudo chown "$(id -u):$(id -g)" /opt/simple-app
-GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/simple-app-deploy -o IdentitiesOnly=yes" git clone git@github.com:benoit-marechal/simple-app.git /opt/simple-app
+git clone https://github.com/benoit-marechal/simple-app.git /opt/simple-app
 cd /opt/simple-app
 ```
 
-Au premier accès, compare l’empreinte SSH annoncée avec les [empreintes officielles GitHub](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints), puis accepte-la si elle correspond. `GIT_SSH_COMMAND` sélectionne la clé dédiée pour cette commande ; `IdentitiesOnly=yes` évite de proposer d’autres clés. Le dossier doit être vide au premier clone ; s’il contient déjà le dépôt, utilise la procédure de mise à jour plus bas.
+Le dossier doit être vide au premier clone ; s’il contient déjà le dépôt, utilise la procédure de mise à jour plus bas.
 
 ### Configurer l’accès distant avant le déploiement
 
@@ -85,13 +72,33 @@ cd /opt/simple-app
 bash install.sh
 bash build.sh
 bash deploy.sh
+bash gen-certif.sh
 ```
 
-- `install.sh` vérifie Ubuntu 24.04, installe `docker.io`, `docker-compose-v2`, `docker-buildx` et `curl`, puis active Docker. Le dépôt Ubuntu `universe` doit être activé.
+- `install.sh` vérifie Ubuntu 24.04, installe `docker.io`, `docker-compose-v2`, `docker-buildx`, `curl` et `openssl`, puis active Docker. Le dépôt Ubuntu `universe` doit être activé.
 - `build.sh` construit l’image web sans lancer l’application.
 - `deploy.sh` génère les identifiants privés au premier lancement, conserve ceux déjà présents, démarre les services et vérifie `/health`.
+- `gen-certif.sh` demande l’IPv4 publique de la VM et génère son certificat autosigné. Il prépare les fichiers sans activer HTTPS : l’application reste accessible en HTTP sur le port 8080.
 
 Ces scripts peuvent être relancés : APT conserve les paquets installés, la construction réutilise son cache et Compose conserve les volumes. Les scripts ne configurent ni groupe Docker ni pare-feu.
+
+### Certificat autosigné
+
+Exécute `gen-certif.sh` sur la VM après `deploy.sh`. Pour fournir l’IPv4 publique sans saisie interactive, avec `VM_IP` déjà renseignée :
+
+```bash
+cd /opt/simple-app
+bash gen-certif.sh "${VM_IP}"
+```
+
+Le certificat utilise une clé RSA de 3072 bits, une signature SHA-256 et une validité de 30 jours. Son extension SAN contient l’IPv4 publique saisie, `127.0.0.1` et le nom `localhost`. L’IP dans le SAN permet de vérifier la correspondance du certificat avec un accès par IP, sans DNS. Elle doit être l’adresse utilisée par le navigateur.
+
+- `/opt/simple-app/certs/server.crt` : certificat public, dont l’empreinte SHA-256, les dates et les SAN sont affichés par le script. Tu peux partager le certificat et son empreinte pour vérifier son identité.
+- `/opt/simple-app/certs/server.key` : clé privée, avec les droits `0600`, dans le dossier `certs/` en `0700`. Ne la partage pas et ne la copie pas dans Git, cloud-init ou un échange de diagnostic. Le dossier est exclu de Git et du contexte de construction Docker.
+
+Une paire existante valide est conservée, sans nouvelle demande d’IP. Si tu fournis une autre IP en argument, le script refuse de remplacer le certificat. Une paire incomplète, invalide ou expirée provoque aussi un arrêt, sans écrasement. Le renouvellement est manuel : déplace le dossier `certs/` entier dans une archive privée, en conservant ses droits, puis relance la génération avec l’IP actuelle. Le script crée un nouveau dossier ; il refuse aussi de réutiliser un dossier vide déjà présent. Un changement d’IP demande un nouveau certificat.
+
+Un certificat autosigné n’est pas reconnu automatiquement par les navigateurs : établir sa confiance est une étape distincte. Ces fichiers devront aussi être raccordés à un service TLS pour servir l’application en HTTPS. Leur génération seule ne chiffre pas le trafic HTTP et ne justifie pas de passer `SESSION_COOKIE_SECURE` à `true`.
 
 ## Vérifier puis se connecter
 
@@ -145,7 +152,7 @@ APP_HOSTS=localhost,127.0.0.1
 
 Le script transmet le hostname de la VM, et non celui du conteneur. Les sources et `config.sh` restent dans `/opt/simple-app` ; les messages et sessions sont dans les volumes Docker de cette VM. Les journaux sont ceux des conteneurs Docker.
 
-Le TP utilise volontairement HTTP sans DNS ni TLS. Pour un usage durable ou des données réelles, prévois HTTPS. Le script accepte la publication réseau en HTTP et affiche un avertissement.
+Pour un usage durable ou des données réelles, prévois HTTPS. `deploy.sh` affiche un avertissement lorsque le port HTTP est publié sur le réseau.
 
 ### Tunnel SSH facultatif
 
@@ -261,7 +268,7 @@ Sur la VM, avec le même compte que pour le clone :
 cd /opt/simple-app
 cp -p config.sh "${HOME}/simple-app-config-$(date +%Y%m%d-%H%M%S).sh"
 git status --short
-GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/simple-app-deploy -o IdentitiesOnly=yes" git pull --ff-only
+git pull --ff-only
 ```
 
 La copie conserve tes choix de déploiement hors du dépôt. `git pull --ff-only` met à jour sans créer de commit de fusion. Si Git refuse parce que tes modifications locales seraient écrasées, arrête la procédure : garde la copie et réconcilie les changements de `config.sh` avant de reprendre. N’utilise pas de remise à zéro forcée pour contourner ce refus.
@@ -279,9 +286,7 @@ Relance aussi le contrôle depuis ton poste. Les identifiants et les volumes exi
 
 ## Appel depuis cloud-init
 
-Le dépôt étant privé, un `git clone` sans authentification échoue. Effectue d’abord le clone authentifié sur la VM avec la procédure ci-dessus, ou utilise un mécanisme de provisionnement qui fournit cet accès séparément. Ne place aucune clé privée ni aucun token dans les données utilisateur cloud-init.
-
-Lorsque les sources complètes sont présentes dans `/opt/simple-app` et que `config.sh` contient déjà les valeurs du déploiement distant :
+Le clone HTTPS du dépôt public utilise la commande de la procédure d’installation. Une fois les sources présentes dans `/opt/simple-app` et `config.sh` adapté au déploiement distant, appelle les scripts ainsi :
 
 ```yaml
 runcmd:
@@ -290,6 +295,6 @@ runcmd:
   - [bash, /opt/simple-app/deploy.sh]
 ```
 
-Ce fragment lance les trois étapes ; il ne prépare pas l’accès au dépôt privé ni les règles réseau. La configuration livrée dans Git reste locale par défaut.
+Ce fragment lance l’installation, la construction et le déploiement. Configure séparément les règles réseau et génère ensuite le certificat avec `bash gen-certif.sh "${VM_IP}"`. La configuration livrée dans Git reste locale par défaut.
 
-Sources : paquets Ubuntu [Docker](https://packages.ubuntu.com/noble/docker.io), [Compose V2](https://packages.ubuntu.com/noble/docker-compose-v2), [Buildx](https://packages.ubuntu.com/noble/docker-buildx), [commande Compose](https://docs.docker.com/reference/cli/docker/compose/up/) et [variable Git GIT_SSH_COMMAND](https://git-scm.com/docs/git#Documentation/git.txt-codeGITSSHCOMMANDcode).
+Sources : paquets Ubuntu [Docker](https://packages.ubuntu.com/noble/docker.io), [Compose V2](https://packages.ubuntu.com/noble/docker-compose-v2), [Buildx](https://packages.ubuntu.com/noble/docker-buildx) et [commande Compose](https://docs.docker.com/reference/cli/docker/compose/up/).

@@ -19,9 +19,9 @@ if [[ ! -f docker-compose.yml ]]; then
     exit 1
 fi
 
-# Les paquets Ubuntu fournissent Docker, Compose V2 et la construction BuildKit.
+# Installer aussi OpenSSL pour la génération du certificat après le déploiement.
 sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-v2 docker-buildx curl
+sudo apt-get install -y docker.io docker-compose-v2 docker-buildx curl openssl
 # Attendu : les paquets sont installés ; une erreur APT arrête le script.
 
 # Démarrer Docker maintenant et le relancer automatiquement au démarrage de la VM.

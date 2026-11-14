@@ -2,7 +2,7 @@
 
 La version initiale ne devait pas être exposée directement sur Internet : lecture et ajout anonymes, stockage sans plafond et absence de TLS fourni. La version revue ajoute l’authentification demandée, les sessions serveur, les contrôles des formulaires et des limites de ressources. Elle écoute seulement sur `127.0.0.1` par défaut.
 
-**L’exposition Internet n’est pas validée.** Benoit retient pour cette étape un accès HTTP par adresse IP, sans DNS ni TLS, sur une instance Ubuntu distante installée depuis le dépôt GitHub privé. Le mot de passe et le cookie de session circulent en clair ; l’accès réseau au port TCP 8080 doit être limité aux adresses sources du TP. Le filtrage OVHcloud et le comportement du répartiteur n’ont pas été vérifiés. Le mot de passe commun protège l’accès au lab ; un login libre ne prouve pas l’identité d’un étudiant.
+**L’exposition Internet n’est pas validée.** Benoit retient pour cette étape un accès HTTP par adresse IP, sans DNS ni TLS, sur une instance Ubuntu distante installée depuis le dépôt GitHub. Le mot de passe et le cookie de session circulent en clair ; l’accès réseau au port TCP 8080 doit être limité aux adresses sources du TP. Le filtrage OVHcloud et le comportement du répartiteur n’ont pas été vérifiés. Le mot de passe commun protège l’accès au lab ; un login libre ne prouve pas l’identité d’un étudiant.
 
 ## Périmètre et preuves
 
@@ -86,6 +86,6 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 
 ## Décision de déploiement
 
-La démonstration locale peut servir aux tests mémoire, disque local et sticky sessions. Le dépôt privé peut conserver ces sources et ce rapport sans les fichiers de secrets.
+La démonstration locale peut servir aux tests mémoire, disque local et sticky sessions. Les sources et ce rapport peuvent être publiés ; les identifiants privés et les certificats générés restent exclus de Git.
 
-Benoit choisit pour cette étape une installation sur Ubuntu distante depuis le dépôt GitHub privé, avec accès HTTP par adresse IP sur TCP 8080, sans DNS ni TLS. Ce choix conserve un risque élevé pour le transport du mot de passe et du cookie ; l’accès réseau doit être restreint aux adresses sources du TP. HTTPS reste une dette de sécurité connue. La recette de l’instance réelle et la qualification des avis résiduels ne sont pas acquises ; ce choix opérationnel ne vaut pas validation de sécurité. Le mot de passe commun doit rester hors du dépôt et être remplacé ou révoqué à la fin du TP. NFS et ses permissions seront vérifiés dans leur propre étape. Ce rapport ne constitue ni un audit d’intrusion complet ni une certification de conformité OWASP.
+Benoit choisit pour cette étape une installation sur Ubuntu distante depuis le dépôt GitHub, avec accès HTTP par adresse IP sur TCP 8080, sans DNS ni TLS. Ce choix conserve un risque élevé pour le transport du mot de passe et du cookie ; l’accès réseau doit être restreint aux adresses sources du TP. HTTPS reste une dette de sécurité connue. La recette de l’instance réelle et la qualification des avis résiduels ne sont pas acquises ; ce choix opérationnel ne vaut pas validation de sécurité. Le mot de passe commun doit rester hors du dépôt et être remplacé ou révoqué à la fin du TP. NFS et ses permissions seront vérifiés dans leur propre étape. Ce rapport ne constitue ni un audit d’intrusion complet ni une certification de conformité OWASP.
