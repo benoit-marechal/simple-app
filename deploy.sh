@@ -28,10 +28,9 @@ if [[ -z "${APP_HOSTS:-}" ]]; then
     exit 1
 fi
 
-# Ne pas publier un formulaire de mot de passe en HTTP sur toutes les interfaces.
+# Le TP autorise temporairement HTTP ; rappeler le risque sans bloquer le déploiement.
 if [[ "${APP_BIND}" == 0.0.0.0 && "${SESSION_COOKIE_SECURE}" != true ]]; then
-    printf 'Configurer HTTPS et SESSION_COOKIE_SECURE=true avant une publication réseau.\n' >&2
-    exit 1
+    printf 'Attention : accès HTTP, mot de passe et cookie transmis en clair. Limiter le port 8080 aux sources du TP.\n' >&2
 fi
 
 # Transmettre uniquement les deux secrets optionnels par leur nom, sans les placer dans les arguments.
@@ -45,5 +44,10 @@ sudo STORAGE_MODE="${STORAGE_MODE}" SESSION_STORAGE="${SESSION_STORAGE}" SESSION
 # Vérifier la page et son stockage avant d'annoncer le démarrage réussi.
 curl --fail --silent --show-error --max-time 15 http://localhost:8080/health >/dev/null
 # Attendu : aucune sortie et aucun code d'erreur.
-printf 'Application disponible sur cette VM : http://localhost:8080/\n'
+printf 'Contrôle local réussi : http://127.0.0.1:8080/health\n'
+if [[ "${APP_BIND}" == 0.0.0.0 ]]; then
+    printf 'Depuis ton poste : http://IP_PUBLIQUE_DE_LA_VM:8080/ (utiliser une IP présente dans APP_HOSTS).\n'
+else
+    printf 'Application accessible uniquement sur cet hôte : http://localhost:8080/\n'
+fi
 printf 'Mot de passe commun à consulter localement : sudo cat secrets/password.txt\n'

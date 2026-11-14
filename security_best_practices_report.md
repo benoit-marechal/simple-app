@@ -2,7 +2,7 @@
 
 La version initiale ne devait pas être exposée directement sur Internet : lecture et ajout anonymes, stockage sans plafond et absence de TLS fourni. La version revue ajoute l’authentification demandée, les sessions serveur, les contrôles des formulaires et des limites de ressources. Elle écoute seulement sur `127.0.0.1` par défaut.
 
-**L’exposition Internet n’est pas validée.** La terminaison HTTPS, le filtrage OVHcloud et le comportement du répartiteur restent à configurer et à vérifier. La durée de quinze jours ne remplace pas ces contrôles. Le mot de passe commun protège l’accès au lab ; un login libre ne prouve pas l’identité d’un étudiant.
+**L’exposition Internet n’est pas validée.** Benoit retient pour cette étape un accès HTTP par adresse IP, sans DNS ni TLS, sur une instance Ubuntu distante installée depuis le dépôt GitHub privé. Le mot de passe et le cookie de session circulent en clair ; l’accès réseau au port TCP 8080 doit être limité aux adresses sources du TP. Le filtrage OVHcloud et le comportement du répartiteur n’ont pas été vérifiés. Le mot de passe commun protège l’accès au lab ; un login libre ne prouve pas l’identité d’un étudiant.
 
 ## Périmètre et preuves
 
@@ -43,9 +43,10 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 
 - **OWASP :** A04 cryptographie, A02 configuration.
 - **Preuve :** le projet ne fournit pas de terminaison TLS. Les protections éventuelles d’OVHcloud ou d’un proxy externe n’ont pas été vérifiées.
-- **Mesure actuelle :** [Compose](docker-compose.yml:6) publie uniquement sur la boucle locale par défaut. `deploy.sh` refuse une publication sur toutes les interfaces avec un cookie configuré non sécurisé. Ce contrôle ne vérifie pas l’existence d’un certificat ou d’un proxy TLS réel.
-- **Avant ouverture :** définir le point d’entrée HTTPS et son certificat, activer le cookie sécurisé, configurer les hôtes autorisés et empêcher l’accès Internet direct au backend HTTP 8080. Garder `localhost` et `127.0.0.1` pour les contrôles locaux.
-- **Vérifications nécessaires :** certificat approuvé, authentification HTTPS, refus d’accès direct au backend, comportement du répartiteur et des sessions. Aucune de ces validations cloud n’a été réalisée.
+- **Mesure actuelle :** [Compose](docker-compose.yml:6) publie uniquement sur la boucle locale par défaut. Pour l’accès distant choisi, `APP_BIND=0.0.0.0` et `SESSION_COOKIE_SECURE=false` permettent l’accès à `http://${IP_INSTANCE}:8080` ; `APP_HOSTS` doit contenir l’adresse IP utilisée, `localhost` et `127.0.0.1`. Le déploiement autorise cette configuration HTTP.
+- **Risque retenu :** HTTP expose le mot de passe commun et le cookie de session à l’interception sur le trajet réseau. Les contrôles CSRF, `HttpOnly` et `SameSite` ne chiffrent pas ce transport. Le groupe de sécurité doit limiter TCP 8080 aux adresses sources du TP ; ce filtrage ne supprime pas le risque d’interception.
+- **Recommandation de sécurité :** une terminaison HTTPS avec certificat approuvé et cookie sécurisé reste la cible pour protéger le transport. Dans ce cas, empêcher l’accès Internet direct au backend HTTP 8080. DNS et TLS sont différés par décision de Benoit ; ils ne constituent pas une condition de refus opérationnel de cette étape.
+- **Validation :** aucun contrôle du groupe de sécurité, de l’accès distant HTTP, du répartiteur ou des sessions sur l’instance OVHcloud n’a été réalisé.
 - **Référence :** [authentification OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) : la page de connexion et les pages authentifiées nécessitent un transport protégé.
 
 ## 5. Image et dépendances — correctifs appliqués, avis résiduels à qualifier
@@ -87,4 +88,4 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 
 La démonstration locale peut servir aux tests mémoire, disque local et sticky sessions. Le dépôt privé peut conserver ces sources et ce rapport sans les fichiers de secrets.
 
-L’ouverture Internet attend la configuration HTTPS/filtrage, la qualification des avis résiduels et une recette de l’instance réelle. Le mot de passe commun doit rester hors du dépôt et être remplacé ou révoqué à la fin du TP. NFS et ses permissions seront vérifiés dans leur propre étape. Ce rapport ne constitue ni un audit d’intrusion complet ni une certification de conformité OWASP.
+Benoit choisit pour cette étape une installation sur Ubuntu distante depuis le dépôt GitHub privé, avec accès HTTP par adresse IP sur TCP 8080, sans DNS ni TLS. Ce choix conserve un risque élevé pour le transport du mot de passe et du cookie ; l’accès réseau doit être restreint aux adresses sources du TP. HTTPS reste une dette de sécurité connue. La recette de l’instance réelle et la qualification des avis résiduels ne sont pas acquises ; ce choix opérationnel ne vaut pas validation de sécurité. Le mot de passe commun doit rester hors du dépôt et être remplacé ou révoqué à la fin du TP. NFS et ses permissions seront vérifiés dans leur propre étape. Ce rapport ne constitue ni un audit d’intrusion complet ni une certification de conformité OWASP.
