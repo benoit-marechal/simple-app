@@ -5,8 +5,8 @@ STORAGE_MODE=text
 SESSION_STORAGE=memory
 
 # Sur une VM distante : 0.0.0.0 publie le backend sur les interfaces de la VM.
-# Le groupe de sécurité doit limiter TCP 8080 aux sources du TP.
+# Le groupe de sécurité doit limiter TCP 8080 aux sources autorisées.
 APP_BIND=127.0.0.1
 
-# Facultatif : laisser vide pour accepter les adresses utilisées pendant le TP.
+# Facultatif : laisser vide pour accepter toutes les adresses d'accès.
 APP_HOSTS=

@@ -5,4 +5,4 @@ CREATE TABLE messages (
 
 INSERT INTO messages (contenu) VALUES
     ('Bienvenue dans Simple App.'),
-    ('Ajoute ton premier message avec le formulaire.');
+    ('Ajouter un message avec le formulaire.');

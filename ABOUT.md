@@ -1,4 +1,4 @@
-Application de test d’infrastructure : connexion au lab, formulaire, messages et hostname de l’instance, avec stockage texte ou PostgreSQL et sessions côté serveur.
+Application web Python avec authentification, liste de messages, hostname de l’instance, stockage texte ou PostgreSQL et sessions côté serveur.
 
 - [README.md](README.md) · Commandes de lancement, d’installation sur Ubuntu 24.04 et d’exploitation.
 - [app.py](app.py) · Gère la connexion et les sessions, lit et ajoute les messages, puis affiche la liste et le hostname de l’hôte.

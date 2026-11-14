@@ -1,8 +1,8 @@
 # Revue de sécurité OWASP
 
-La version initiale ne devait pas être exposée directement sur Internet : lecture et ajout anonymes, stockage sans plafond et absence de TLS fourni. La version revue ajoute l’authentification demandée, les sessions serveur, les contrôles des formulaires et des limites de ressources. Elle écoute seulement sur `127.0.0.1` par défaut.
+La version initiale présentait des risques en cas d’exposition directe sur Internet : lecture et ajout anonymes, stockage sans plafond et absence de TLS fourni. La version revue ajoute l’authentification, les sessions serveur, les contrôles des formulaires et des limites de ressources. Elle écoute seulement sur `127.0.0.1` par défaut.
 
-**L’exposition Internet n’est pas validée.** L’application sert HTTP sur TCP 8080, avec connexion et sessions utilisables directement en HTTP. TLS est délégué au LB externe. Le LB et le filtrage OVHcloud n’ont pas été configurés ni vérifiés ici. Un accès HTTP direct transmet le mot de passe et le cookie en clair. Le mot de passe commun protège l’accès au lab ; un login libre ne prouve pas l’identité d’un étudiant.
+**L’exposition Internet n’est pas validée.** L’application sert HTTP sur TCP 8080, avec connexion et sessions utilisables directement en HTTP. TLS est délégué au LB externe. La configuration du LB et du filtrage OVHcloud n’a pas été vérifiée lors de ce contrôle. Un accès HTTP direct transmet le mot de passe et le cookie en clair. Le mot de passe commun protège l’accès à l’application ; un login libre ne prouve pas l’identité d’une personne.
 
 ## Périmètre et preuves
 
@@ -10,7 +10,6 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 - Référentiel : [OWASP Top 10:2025](https://top10.owasp.org/2025/) et [considérations de sécurité Flask](https://flask.palletsprojects.com/en/stable/web-security/).
 - Tests HTTP locaux et clients Flask isolés ; aucun scan de VM, test de saturation ou test du réseau OVHcloud.
 - Image examinée lors du contrôle précédent : `sha256:6a837ae16ec16fe602d3a9bd2c9dd8f6c186bc7d7cc4f447b889ad475495a60e`, Linux ARM64. Les résultats de dépendances ci-dessous concernent cette image ; ils ne valident pas les reconstructions ultérieures.
-- Aucun mot de passe, clé de signature ou cookie n’est inclus dans ce rapport ou dans l’image. Les répertoires de secrets et de données n’ont pas été transmis à un service d’analyse. Les outils ont téléchargé leurs bases publiques ; pip-audit a interrogé les avis à partir des noms et versions de paquets.
 
 ## 1. Accès anonyme aux messages — élevé, corrigé localement
 
@@ -18,14 +17,14 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 - **Preuve initiale :** GET `/` répondait 200 et POST `/` 303 sans connexion. Un visiteur pouvait lire ou ajouter des messages.
 - **Correction :** [app.py](app.py:67) impose le mot de passe commun et un login de 1 à 40 caractères ; [la route des messages](app.py:93) exige une session. Le hash scrypt et la clé sont lus depuis des fichiers montés en lecture seule, jamais depuis le dépôt.
 - **Vérification :** accès anonyme redirigé ; mauvais mot de passe refusé ; identifiant de session renouvelé après connexion ; bouton de déconnexion en POST ; ancien cookie refusé après déconnexion.
-- **Limite :** tous les participants connaissent le même mot de passe et disposent des mêmes droits. Ce modèle ne permet pas une attribution fiable à une personne réelle.
+- **Limite :** tous les utilisateurs connaissent le même mot de passe et disposent des mêmes droits. Ce modèle ne permet pas une attribution fiable à une personne réelle.
 
 ## 2. Épuisement du stockage et de la mémoire — élevé, protections applicatives ajoutées
 
 - **OWASP :** A06 conception, A02 configuration.
 - **Preuve initiale :** le client de test a pu rendre 1001 messages puis en ajouter un autre. Le code relisait toute la liste sans plafond.
 - **Correction :** [messages.py](messages.py:10) borne le fichier à 1 Mio et la liste à 1000 messages. Les écritures texte sont verrouillées ; le comptage et l’insertion SQL sont sérialisés dans une transaction. Les messages restent limités à 500 caractères et les requêtes à 16 Kio.
-- **Débit :** 60 tentatives de connexion POST par minute et par IP, 120 ouvertures de la page de connexion, 60 ajouts par minute. Ces limites en mémoire s’appliquent par instance ; elles ne constituent pas une protection DDoS globale. Une classe derrière une même IP partage ces limites.
+- **Débit :** 60 tentatives de connexion POST par minute et par IP, 120 ouvertures de la page de connexion, 60 ajouts par minute. Ces limites en mémoire s’appliquent par instance ; elles ne constituent pas une protection DDoS globale. Les utilisateurs derrière une même IP partagent ces limites.
 - **Vérification :** ajouts refusés en 409 lorsque le fichier ou le nombre de messages atteint sa limite ; corps trop gros refusé en 413 ; 61e tentative de connexion refusée en 429 dans un client de test isolé.
 - **Reste :** le frontal Internet doit aussi borner les connexions lentes et le débit. Gunicorn doit être protégé par une entrée HTTP adaptée ; [sa documentation](https://gunicorn.org/deploy/) explique notamment le besoin de traiter les clients lents en amont.
 
@@ -36,8 +35,8 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 - **Correction :** Flask-WTF protège les POST de connexion, d’ajout et de déconnexion. Le cookie contient un identifiant opaque ; les données de session restent sur le serveur. Cookie `HttpOnly`, `SameSite=Lax`, durée de deux heures. L’application n’émet pas l’attribut `Secure`, afin de permettre le fonctionnement HTTP du backend.
 - **Stockage :** mémoire par défaut, ou fichiers via CacheLib et son sérialiseur JSON dans [session_files.py](session_files.py:1). Le mode fichier n’utilise pas le sérialiseur pickle par défaut de CacheLib.
 - **Vérifications précédentes :** refus sans jeton CSRF, perte des sessions mémoire après redémarrage, conservation des sessions fichier et refus du cookie de l’instance A par une instance B disposant d’un autre disque de sessions. Ces essais ne constituent pas une recette du LB.
-- **Vérification HTTP actuelle :** après reconstruction et recréation du conteneur, `/health` répond 200, l’accès anonyme redirige en 303, la connexion avec CSRF donne accès à la page authentifiée en 200, et la déconnexion invalide l’ancien cookie. Un POST sans CSRF est refusé en 400. Le cookie conserve `HttpOnly` et `SameSite=Lax`, sans `Secure`. Aucun message n’a été écrit pendant cet essai ; les valeurs du mot de passe et du cookie n’ont pas été affichées.
-- **Reste :** les sessions fichier sont locales. NFS sera une étape séparée, avec même répertoire de sessions, mêmes droits UID/GID et même clé de signature. Le répertoire devra être réservé au cache des sessions et accessible seulement aux hôtes autorisés.
+- **Vérification HTTP du 14 novembre 2026 :** après reconstruction et recréation du conteneur, `/health` répond 200, l’accès anonyme redirige en 303, la connexion avec CSRF donne accès à la page authentifiée en 200, et la déconnexion invalide l’ancien cookie. Un POST sans CSRF est refusé en 400. Le cookie conserve `HttpOnly` et `SameSite=Lax`, sans `Secure`.
+- **Limite :** les sessions fichier sont locales. Le partage par NFS n’a pas été vérifié. Il nécessite un même répertoire de sessions, des droits UID/GID cohérents et une même clé de signature sur les instances. Le répertoire doit être réservé au cache des sessions et accessible seulement aux hôtes autorisés.
 - **Référence :** [prévention CSRF OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 
 ## 4. HTTPS et exposition réseau — élevé si publication HTTP, non validé sur Internet
@@ -45,7 +44,7 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 - **OWASP :** A04 cryptographie, A02 configuration.
 - **Transport :** le backend et sa connexion fonctionnent en HTTP. TLS et les certificats sont entièrement gérés par le LB externe ; l’application ne configure ni TLS, ni proxy, ni traitement d’en-têtes transmis par un proxy. L’accès direct HTTP expose le mot de passe, les messages et le cookie à l’interception.
 - **Cookie :** `HttpOnly` et `SameSite=Lax` sont conservés ; ils ne chiffrent pas le transport. Pour ajouter `Secure` au cookie côté navigateur, le LB doit le réécrire explicitement, si cette fonction est disponible. La terminaison TLS seule ne crée pas cet attribut. Cette capacité du LB n’a pas été vérifiée.
-- **Réseau :** [Compose](docker-compose.yml:6) publie uniquement sur la boucle locale par défaut. `APP_HOSTS=` est vide par défaut : le filtrage de l’en-tête HTTP Host est facultatif et aucune IP n’est à saisir pour déployer le TP. Une liste non vide active ce contrôle et doit inclure les adresses d’accès et celles des contrôles de santé. Le groupe de sécurité ou le frontal doit limiter l’accès selon le TP ; cette option ne remplace pas le filtrage réseau. Les contrôles d’authentification, CSRF, sessions, débit et ressources restent actifs.
+- **Réseau :** [Compose](docker-compose.yml:6) publie uniquement sur la boucle locale par défaut. `APP_HOSTS=` est vide par défaut : le filtrage de l’en-tête HTTP Host est facultatif. Une liste non vide active ce contrôle et doit inclure les adresses d’accès et celles des contrôles de santé. Le groupe de sécurité ou le frontal doit limiter l’accès aux sources autorisées ; cette option ne remplace pas le filtrage réseau. Les contrôles d’authentification, CSRF, sessions, débit et ressources restent actifs.
 - **Recommandation de sécurité :** une terminaison HTTPS avec certificat approuvé et nom correspondant à l’adresse utilisée protège le transport et l’identité serveur. Si elle utilise un backend HTTP, empêcher l’accès Internet direct à ce backend.
 - **Validation :** aucun contrôle du groupe de sécurité, de l’accès distant HTTP, du répartiteur ou des sessions sur l’instance OVHcloud n’a été réalisé.
 - **Référence :** [authentification OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) : la page de connexion et les pages authentifiées nécessitent un transport protégé.
@@ -57,8 +56,7 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 - **Correction :** le Dockerfile met à jour zlib et utilise pip 26.3. Les neuf avis précédents sur zlib et pip ont disparu du scan final.
 - **pip-audit :** aucun avis connu sur les 23 distributions réellement installées, pip compris. Ce résultat n’est pas une preuve d’absence de vulnérabilité inconnue.
 - **Trivy 0.76.2 :** 206 occurrences sur les paquets Debian, correspondant à 92 identifiants distincts ; 47 entrées HIGH, 89 MEDIUM, 65 LOW et 5 UNKNOWN. Aucun CRITICAL et aucun correctif indiqué par ce scan pour ces entrées restantes. Ces nombres ne représentent pas autant de failles HTTP exploitables de Simple App ; leur applicabilité complète n’a pas été établie.
-- **Alertes SBOM :** trois avis supplémentaires mentionnent setuptools 70.3.0 dans le SBOM embarqué de pip, sans distribution setuptools installée/importable corroborée. Les scénarios décrits concernent le téléchargement de paquets ou des plateformes macOS/Windows ; ne pas les présenter comme des exploitations web établies sous Linux.
-- **Preuves locales temporaires :** `/tmp/simple-app-image-audit-final.vjokEb/trivy.json` et `/tmp/simple-app-pip-audit-updated.json`. Ces fichiers ne sont pas embarqués dans l’application.
+- **Alertes SBOM :** trois avis supplémentaires mentionnent setuptools 70.3.0 dans le SBOM embarqué de pip, sans distribution setuptools installée/importable corroborée. Les scénarios décrits concernent le téléchargement de paquets ou des plateformes macOS/Windows ; ces avis ne démontrent pas une exploitation web sous Linux.
 - **Reste :** qualifier les alertes restantes selon les chemins réellement utilisés, maintenir le socle et refaire le scan après reconstruction ou changement de plateforme. Le rapport ne donne pas un feu vert Internet sur le seul nombre d’alertes.
 
 ## 6. Confinement et journaux — moyen, protections ajoutées
@@ -72,8 +70,8 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 ## 7. PostgreSQL optionnel — moyen, point restant avant usage Internet de ce mode
 
 - **OWASP :** A02 configuration, moindre privilège.
-- **Preuve :** Compose utilise un mot de passe de démonstration et le même utilisateur pour l’initialisation de PostgreSQL et l’application. L’image officielle donne des droits de superutilisateur à cet utilisateur initial.
-- **Portée :** PostgreSQL est désactivé en mode texte et n’a aucun port publié sur l’hôte. Le mot de passe de démonstration ne constitue donc pas une preuve d’accès distant à la base.
+- **Preuve :** Compose utilise un mot de passe par défaut et le même utilisateur pour l’initialisation de PostgreSQL et l’application. L’image officielle donne des droits de superutilisateur à cet utilisateur initial.
+- **Portée :** PostgreSQL est désactivé en mode texte et n’a aucun port publié sur l’hôte. Le mot de passe par défaut ne constitue donc pas une preuve d’accès distant à la base.
 - **À traiter avant usage Internet de ce mode :** secret de déploiement distinct et rôle applicatif limité à la base et aux opérations utiles. L’image PostgreSQL n’a pas été scannée dans cette revue de l’image web.
 
 ## Contrôles positifs
@@ -87,6 +85,6 @@ La version initiale ne devait pas être exposée directement sur Internet : lect
 
 ## Décision de déploiement
 
-La démonstration locale peut servir aux tests mémoire, disque local et sticky sessions. Les sources et ce rapport peuvent être publiés ; les identifiants privés restent exclus de Git.
+Le déploiement local permet les tests de sessions en mémoire, sur disque local et avec affinité de session. Les identifiants privés doivent rester exclus du dépôt Git.
 
-L’installation cible Ubuntu distante depuis le dépôt GitHub. L’application fournit un backend HTTP sur TCP 8080, avec authentification, CSRF, sessions serveur, limites de débit et de ressources. TLS relève intégralement du LB externe. Cette délégation ne valide ni sa configuration ni la protection du cookie côté navigateur. Le HTTP direct reste réservé aux données et identifiants de démonstration, avec accès réseau limité aux sources autorisées ; une fois le LB raccordé, restreindre le backend aux sources prévues. La recette de l’instance réelle et la qualification des avis résiduels ne sont pas acquises. Le mot de passe commun doit rester hors du dépôt et être remplacé ou révoqué à la fin du TP. NFS et ses permissions seront vérifiés dans leur propre étape. Ce rapport ne constitue ni un audit d’intrusion complet ni une certification de conformité OWASP.
+L’installation cible un hôte Ubuntu distant depuis le dépôt GitHub. L’application fournit un backend HTTP sur TCP 8080, avec authentification, CSRF, sessions serveur, limites de débit et de ressources. TLS relève intégralement du LB externe. Cette délégation ne valide ni sa configuration ni la protection du cookie côté navigateur. Le HTTP direct doit rester réservé à des données et identifiants de test, avec accès réseau limité aux sources autorisées. Derrière le LB, le backend doit être accessible uniquement depuis les sources prévues. Le déploiement distant, le partage NFS et la qualification des avis résiduels ne sont pas validés par ce rapport. Le mot de passe commun doit rester hors du dépôt et être remplacé ou révoqué après utilisation. Ce rapport ne constitue ni un audit d’intrusion complet ni une certification de conformité OWASP.

@@ -28,7 +28,7 @@ elif session_storage == "file":
 else:
     raise ValueError("SESSION_STORAGE doit valoir memory ou file.")
 
-# Le TP peut changer d'adresse ; une liste d'hôtes reste disponible en option.
+# Une liste d'hôtes peut restreindre les adresses d'accès.
 allowed_hosts = os.environ.get("APP_HOSTS", "").strip()
 app.config.update(
     SECRET_KEY=secret_key,
@@ -64,7 +64,7 @@ def proteger_reponse(reponse):
     return reponse
 
 
-# Authentifier le participant : appelée sur GET/POST /login ; sans elle,
+# Authentifier l'utilisateur : appelée sur GET/POST /login ; sans elle,
 # aucun contrôle du mot de passe commun ni renouvellement de session ne serait réalisé.
 @app.route("/login", methods=["GET", "POST"])
 @limiter.limit(lambda: "60 per minute" if request.method == "POST" else "120 per minute", per_method=True)
@@ -88,7 +88,7 @@ def login():
 
 
 # Conserver et afficher les messages : appelée sur GET/POST / ; sans elle,
-# un participant connecté ne pourrait ni enregistrer un texte ni consulter la liste.
+# un utilisateur connecté ne pourrait ni enregistrer un texte ni consulter la liste.
 @app.route("/", methods=["GET", "POST"])
 @limiter.limit("60 per minute", methods=["POST"])
 def index():
@@ -97,14 +97,14 @@ def index():
     if request.method == "POST":
         contenu = request.form.get("contenu", "").strip()
         if not 1 <= len(contenu) <= 500:
-            return "Écris un message de 1 à 500 caractères.", 400
+            return "Le message doit contenir de 1 à 500 caractères.", 400
         if not ajouter_message(contenu):
             return "La liste des messages est pleine.", 409
         return redirect(url_for("index"), code=303)
     return render_template("index.html", messages=lire_messages(), instance_hostname=instance_hostname)
 
 
-# Fermer l'accès du participant : appelée uniquement sur POST /logout ; sans elle,
+# Fermer l'accès de l'utilisateur : appelée uniquement sur POST /logout ; sans elle,
 # la session resterait utilisable après son départ.
 @app.post("/logout")
 def logout():
