@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple App</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 48px 20px; background: #f4f7fc; color: #18263c; font-family: system-ui, sans-serif; }
+    main { max-width: 640px; margin: auto; padding: 32px; background: white; border: 1px solid #dce5f2; border-radius: 16px; }
+    h1 { margin: 0 0 8px; color: #1555bb; font-size: 2rem; }
+    .instance { margin: 0 0 28px; color: #52657e; font-size: 0.875rem; overflow-wrap: anywhere; }
+    ul { margin: 0 0 32px; padding: 0; list-style: none; }
+    li { padding: 14px 0; border-bottom: 1px solid #e6ecf5; white-space: pre-wrap; overflow-wrap: anywhere; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    textarea { display: block; width: 100%; min-height: 96px; padding: 12px; border: 1px solid #a6b9d4; border-radius: 8px; font: inherit; resize: vertical; }
+    textarea:focus-visible, button:focus-visible { outline: 3px solid #80b4ff; outline-offset: 3px; }
+    button { margin-top: 12px; padding: 12px 24px; border: 0; border-radius: 8px; background: #1555bb; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover { background: #104390; }
+    @media (max-width: 480px) { body { padding: 20px 12px; } main { padding: 24px 20px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Simple App</h1>
+    <p class="instance">Instance : {{ instance_hostname }}</p>
+    <p>Bonjour, {{ session['login'] }}</p>
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">Se déconnecter</button>
+    </form>
+    <ul aria-label="Messages">
+      {% for contenu in messages %}
+      <li>{{ contenu }}</li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="{{ url_for('index') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="contenu">Message</label>
+      <textarea id="contenu" name="contenu" maxlength="500" required></textarea>
+      <button type="submit">Ajouter</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -1,0 +1,65 @@
+name: simple-app
+
+services:
+  web:
+    build: .
+    ports:
+      - "${APP_BIND:-127.0.0.1}:8080:8000"
+    environment:
+      STORAGE_MODE: ${STORAGE_MODE:-text}
+      SESSION_STORAGE: ${SESSION_STORAGE:-memory}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      APP_HOSTS: ${APP_HOSTS:-localhost,127.0.0.1}
+      INSTANCE_HOSTNAME: ${INSTANCE_HOSTNAME:-non renseignée}
+      MESSAGE_FILE: /data/messages.txt
+      DB_HOST: db
+      DB_NAME: simple_app
+      DB_USER: simple_app
+      DB_PASSWORD: simple_app_demo
+    volumes:
+      - messages_data:/data
+      - session_data:/sessions
+      - ./secrets/secret.key:/run/secrets/secret_key:ro
+      - ./secrets/password.hash:/run/secrets/password_hash:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  db:
+    profiles: [postgres]
+    image: postgres:16
+    environment:
+      POSTGRES_DB: simple_app
+      POSTGRES_USER: simple_app
+      POSTGRES_PASSWORD: simple_app_demo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "simple_app", "-d", "simple_app"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  messages_data:
+  session_data:
+  postgres_data:

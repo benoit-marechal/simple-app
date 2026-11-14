@@ -1,0 +1,10 @@
+# Envoyer uniquement les fichiers nécessaires à l’image Python.
+*
+!app.py
+!messages.py
+!session_files.py
+!prepare_secrets.py
+!requirements.txt
+!templates/
+!templates/index.html
+!templates/login.html

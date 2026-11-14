@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple App</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 48px 20px; background: #f4f7fc; color: #18263c; font-family: system-ui, sans-serif; }
+    main { max-width: 480px; margin: auto; padding: 32px; background: white; border: 1px solid #dce5f2; border-radius: 16px; }
+    h1 { margin: 0 0 8px; color: #1555bb; font-size: 2rem; }
+    .instance { margin: 0 0 28px; color: #52657e; font-size: 0.875rem; overflow-wrap: anywhere; }
+    label { display: block; margin: 20px 0 8px; font-weight: 600; }
+    input { display: block; width: 100%; padding: 12px; border: 1px solid #a6b9d4; border-radius: 8px; font: inherit; }
+    input:focus-visible, button:focus-visible { outline: 3px solid #80b4ff; outline-offset: 3px; }
+    button { margin-top: 20px; padding: 12px 24px; border: 0; border-radius: 8px; background: #1555bb; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover { background: #104390; }
+    .erreur { color: #a51d29; }
+    @media (max-width: 480px) { body { padding: 20px 12px; } main { padding: 24px 20px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Simple App</h1>
+    <p class="instance">Instance : {{ instance_hostname }}</p>
+    {% if erreur %}<p class="erreur" role="alert">{{ erreur }}</p>{% endif %}
+    <form method="post" action="{{ url_for('login') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="login">Login</label>
+      <input id="login" name="login" maxlength="40" autocomplete="username" required>
+      <label for="password">Mot de passe</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Se connecter</button>
+    </form>
+  </main>
+</body>
+</html>

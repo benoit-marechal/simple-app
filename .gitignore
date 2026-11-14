@@ -1,0 +1,11 @@
+graphify-out/
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.env
+.env.*
+.venv/
+__pycache__/
+*.pyc
+secrets/
