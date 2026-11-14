@@ -19,17 +19,13 @@ if [[ "${APP_BIND:-}" != 127.0.0.1 && "${APP_BIND:-}" != 0.0.0.0 ]]; then
     printf 'Dans config.sh, APP_BIND doit valoir 127.0.0.1 ou 0.0.0.0.\n' >&2
     exit 1
 fi
-if [[ -z "${APP_HOSTS:-}" ]]; then
-    printf 'Dans config.sh, APP_HOSTS doit contenir les noms ou IP autorisés.\n' >&2
-    exit 1
-fi
 
 # Transmettre uniquement les deux secrets optionnels par leur nom, sans les placer dans les arguments.
 # Le conteneur temporaire crée les fichiers privés une seule fois ; les relances les conservent.
 sudo --preserve-env=APP_PASSWORD,APP_SECRET_KEY docker run --rm --user 0 -e APP_PASSWORD -e APP_SECRET_KEY --volume "${PWD}/secrets:/credentials" simple-app-web python prepare_secrets.py
 
 # Démarrer l'image déjà construite et attendre les services sains, au plus 120 s.
-sudo STORAGE_MODE="${STORAGE_MODE}" SESSION_STORAGE="${SESSION_STORAGE}" APP_BIND="${APP_BIND}" APP_HOSTS="${APP_HOSTS}" INSTANCE_HOSTNAME="$(hostname)" docker compose --profile "${STORAGE_MODE}" up -d --no-build --wait --wait-timeout 120
+sudo STORAGE_MODE="${STORAGE_MODE}" SESSION_STORAGE="${SESSION_STORAGE}" APP_BIND="${APP_BIND}" APP_HOSTS="${APP_HOSTS:-}" INSTANCE_HOSTNAME="$(hostname)" docker compose --profile "${STORAGE_MODE}" up -d --no-build --wait --wait-timeout 120
 # En cas d'échec : sudo docker compose logs --tail=100 web db
 
 # Vérifier la page et son stockage avant d'annoncer le démarrage réussi.

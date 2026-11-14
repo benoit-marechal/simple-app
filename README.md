@@ -23,12 +23,9 @@ Le dossier doit être vide au premier clone ; s’il contient déjà le dépôt,
 
 ### Configurer l’accès distant avant le déploiement
 
-Le fichier livré écoute sur `127.0.0.1`, pour un usage local. Sur la VM, renseigne son IP publique actuelle, puis ouvre la configuration :
+Le fichier livré écoute sur `127.0.0.1`, pour un usage local. Sur la VM, ouvre la configuration :
 
 ```bash
-printf 'IP publique de la VM : '
-read -r VM_IP
-printf 'APP_HOSTS=localhost,127.0.0.1,%s\n' "${VM_IP}"
 nano /opt/simple-app/config.sh
 ```
 
@@ -40,27 +37,13 @@ SESSION_STORAGE=memory
 APP_BIND=0.0.0.0
 ```
 
-Remplace aussi la ligne `APP_HOSTS` par la ligne complète affichée par `printf`, qui contient l’IP réelle. Conserve `localhost` et `127.0.0.1` pour les contrôles de santé. Si l’IP publique change, modifie aussi `APP_HOSTS` puis relance `bash deploy.sh`.
+Laisse `APP_HOSTS=` vide : aucune adresse IP n’est à renseigner pour installer ou déployer l’application, ni pour générer son certificat.
 
 ### Autoriser le port du TP
 
 Dans le **groupe de sécurité OpenStack attaché à la VM**, limite l’accès au backend **TCP 8080** aux sources autorisées pour les contrôles ou au frontal HTTPS, selon ton raccordement TLS. Vérifie qu’aucune autre règle attachée à la VM n’autorise déjà ce port depuis une origine plus large. Conserve l’accès SSH TCP 22 nécessaire à l’administration.
 
-Si UFW est installé, vérifie son état :
-
-```bash
-sudo ufw status verbose
-```
-
-Seulement s’il est déjà actif et que sa politique l’exige, ajoute la règle pour la même origine :
-
-```bash
-printf 'CIDR public autorisé pour le TP : '
-read -r TP_CIDR
-sudo ufw allow from "${TP_CIDR}" to any port 8080 proto tcp
-```
-
-N’active pas UFW et ne modifie pas sa politique par défaut pour ce déploiement. Les [ports publiés par Docker peuvent contourner les règles UFW](https://docs.docker.com/engine/network/packet-filtering-firewalls/#docker-and-ufw) : le groupe de sécurité OpenStack doit porter la restriction d’origine effective.
+Les [ports publiés par Docker peuvent contourner les règles UFW](https://docs.docker.com/engine/network/packet-filtering-firewalls/#docker-and-ufw) : le groupe de sécurité OpenStack doit porter la restriction d’origine effective.
 
 ### Installer, construire, déployer
 
@@ -118,15 +101,7 @@ curl --fail http://127.0.0.1:8080/health
 hostname
 ```
 
-Le service web doit être sain et `/health` doit répondre sans erreur. Depuis un poste autorisé à joindre le backend, définis à nouveau `VM_IP` dans ce terminal puis teste :
-
-```bash
-printf 'IP publique de la VM : '
-read -r VM_IP
-curl --fail "http://${VM_IP}:8080/health"
-```
-
-Un résultat HTTP 200 sur `/health` valide uniquement le backend. Il ne valide ni HTTPS ni une session authentifiée dans le navigateur. Raccorde le certificat et sa clé à ton service HTTPS, puis ouvre son adresse HTTPS pour te connecter. Le backend HTTP seul ne permet pas de conserver une session lors d’un accès distant.
+Le service web doit être sain et `/health` doit répondre HTTP 200. Ce contrôle valide uniquement le backend. Raccorde le certificat et sa clé à ton service HTTPS, puis ouvre son adresse HTTPS pour te connecter : le cookie `Secure` nécessite HTTPS pour l’accès authentifié distant.
 
 Une fois l’accès HTTPS opérationnel, choisis librement ton login et saisis le mot de passe commun du lab. Il ne s’agit pas de comptes individuels avec des mots de passe distincts. Après connexion, la page affiche le login et le hostname de la VM : compare-le avec la commande `hostname`. `localhost` dans le navigateur désigne ton poste, pas la VM distante.
 
@@ -146,28 +121,18 @@ Le fichier `config.sh`, à côté des scripts, contient les choix du déploiemen
 STORAGE_MODE=text
 SESSION_STORAGE=memory
 APP_BIND=127.0.0.1
-APP_HOSTS=localhost,127.0.0.1
+APP_HOSTS=
 ```
 
 - `STORAGE_MODE=text` utilise `/data/messages.txt` dans le volume Docker `simple-app_messages_data`, local à cette instance. `postgres` démarre aussi PostgreSQL et utilise `simple-app_postgres_data`. Changer de mode ne transfère pas les messages.
 - `SESSION_STORAGE=memory` garde les sessions côté serveur dans le processus web : un redémarrage déconnecte les utilisateurs. `file` utilise `/sessions` dans le volume local `simple-app_session_data` et conserve les sessions lors des redémarrages.
 - Le cookie de session porte toujours l’attribut `Secure`. Ce comportement est fixé dans le code et ne peut pas être désactivé dans `config.sh`, Compose ou une variable d’environnement. L’accès navigateur doit être en HTTPS pour conserver la session.
 - `APP_BIND=127.0.0.1` limite la publication au poste ou à la VM. `0.0.0.0` publie le port 8080 sur les interfaces de l’hôte ; les restrictions réseau doivent alors être définies séparément.
-- `APP_HOSTS` est la liste des noms ou IP acceptés dans l’en-tête HTTP Host, séparés par des virgules. Ajoute les noms réellement utilisés pour accéder à l’application.
+- `APP_HOSTS=` vide accepte l’adresse utilisée pour accéder au TP, sans filtrage de l’en-tête HTTP Host. Pour un usage avancé, une liste facultative de noms ou d’IP séparés par des virgules active ce filtrage ; elle doit alors inclure les adresses d’accès ainsi que `localhost` et `127.0.0.1` pour les contrôles de santé. Le filtrage réseau ou au frontal reste nécessaire.
 
 Le script transmet le hostname de la VM, et non celui du conteneur. Les sources et `config.sh` restent dans `/opt/simple-app` ; les messages et sessions sont dans les volumes Docker de cette VM. Les journaux sont ceux des conteneurs Docker.
 
 `deploy.sh` rappelle que le backend HTTP ne suffit pas à l’accès authentifié distant. Pour un usage durable ou des données réelles, utilise un certificat approuvé dont le nom correspond à l’adresse HTTPS.
-
-### Tunnel SSH pour contrôler le backend
-
-Pour contrôler le backend sans publier TCP 8080 sur le réseau, garde `APP_BIND=127.0.0.1` avec `APP_HOSTS=localhost,127.0.0.1`. Sur ton poste, définis `VM_USER` avec ton compte SSH de la VM et `VM_IP` avec son IP publique, puis lance :
-
-```bash
-ssh -N -L 18080:127.0.0.1:8080 "${VM_USER}@${VM_IP}"
-```
-
-Dans un autre terminal de ton poste, exécute `curl --fail http://localhost:18080/health`. **18080** est uniquement le port local du tunnel ; le backend écoute sur le port **8080** de la VM. Le tunnel chiffre son trajet SSH mais ne crée pas une adresse HTTPS pour le navigateur : il ne remplace pas le raccordement TLS nécessaire à l’accès authentifié distant.
 
 ## Identifiants privés
 
@@ -198,7 +163,7 @@ Depuis ce dossier, avec un moteur Docker actif et Compose V2 :
 ```bash
 docker compose build
 docker run --rm --user 0 --volume "${PWD}/secrets:/credentials" simple-app-web python prepare_secrets.py
-STORAGE_MODE=text SESSION_STORAGE=memory APP_BIND=127.0.0.1 APP_HOSTS=localhost,127.0.0.1 INSTANCE_HOSTNAME="$(hostname)" docker compose up -d --no-build --wait --wait-timeout 120
+STORAGE_MODE=text SESSION_STORAGE=memory APP_BIND=127.0.0.1 APP_HOSTS= INSTANCE_HOSTNAME="$(hostname)" docker compose up -d --no-build --wait --wait-timeout 120
 ```
 
 Pour PostgreSQL, utilise `STORAGE_MODE=postgres` et ajoute `--profile postgres` à la commande Compose. Vérifie le backend avec `curl --fail http://localhost:8080/health`. Le certificat se génère avec `bash gen-certif.sh` ; son raccordement HTTPS est à réaliser séparément pour l’accès navigateur. Consulte localement `secrets/password.txt` avec les droits nécessaires.

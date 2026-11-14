@@ -28,10 +28,12 @@ elif session_storage == "file":
 else:
     raise ValueError("SESSION_STORAGE doit valoir memory ou file.")
 
+# Le TP peut changer d'adresse ; une liste d'hôtes reste disponible en option.
+allowed_hosts = os.environ.get("APP_HOSTS", "").strip()
 app.config.update(
     SECRET_KEY=secret_key,
     MAX_CONTENT_LENGTH=16384,
-    TRUSTED_HOSTS=os.environ.get("APP_HOSTS", "localhost,127.0.0.1").split(","),
+    TRUSTED_HOSTS=allowed_hosts.split(",") if allowed_hosts else None,
     SESSION_TYPE="cachelib",
     SESSION_CACHELIB=session_cache,
     SESSION_COOKIE_NAME="simple_app_session",
