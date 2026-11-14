@@ -4,7 +4,7 @@ Un formulaire enregistre des messages dans un fichier texte ou PostgreSQL 16. La
 
 ## Installer sur une VM Ubuntu 24.04
 
-L’application est accessible pendant le TP en HTTP sur l’IP publique de la VM, port 8080, sans DNS ni TLS. Le mot de passe, les messages et le cookie de session circulent en clair : utilise uniquement des identifiants et messages de démonstration, sur la durée du TP.
+Le backend écoute en HTTP sur le port 8080. Le cookie de session porte toujours l’attribut `Secure` : l’accès authentifié distant nécessite un accès HTTPS raccordé séparément par l’administrateur. Les scripts préparent l’application et le certificat ; ils ne configurent pas la terminaison TLS. Utilise uniquement des identifiants et messages de démonstration pour ce TP.
 
 ### Récupérer les sources depuis GitHub
 
@@ -37,7 +37,6 @@ Dans `config.sh`, saisis les valeurs suivantes :
 ```bash
 STORAGE_MODE=text
 SESSION_STORAGE=memory
-SESSION_COOKIE_SECURE=false
 APP_BIND=0.0.0.0
 ```
 
@@ -45,7 +44,7 @@ Remplace aussi la ligne `APP_HOSTS` par la ligne complète affichée par `printf
 
 ### Autoriser le port du TP
 
-Dans le **groupe de sécurité OpenStack attaché à la VM**, autorise le trafic entrant **TCP 8080** depuis l’IP publique du poste de test (`/32`) ou le CIDR public de la salle de TP. Vérifie qu’aucune autre règle attachée à la VM n’autorise déjà ce port depuis une origine plus large. Conserve l’accès SSH TCP 22 nécessaire à l’administration.
+Dans le **groupe de sécurité OpenStack attaché à la VM**, limite l’accès au backend **TCP 8080** aux sources autorisées pour les contrôles ou au frontal HTTPS, selon ton raccordement TLS. Vérifie qu’aucune autre règle attachée à la VM n’autorise déjà ce port depuis une origine plus large. Conserve l’accès SSH TCP 22 nécessaire à l’administration.
 
 Si UFW est installé, vérifie son état :
 
@@ -78,27 +77,35 @@ bash gen-certif.sh
 - `install.sh` vérifie Ubuntu 24.04, installe `docker.io`, `docker-compose-v2`, `docker-buildx`, `curl` et `openssl`, puis active Docker. Le dépôt Ubuntu `universe` doit être activé.
 - `build.sh` construit l’image web sans lancer l’application.
 - `deploy.sh` génère les identifiants privés au premier lancement, conserve ceux déjà présents, démarre les services et vérifie `/health`.
-- `gen-certif.sh` demande l’IPv4 publique de la VM et génère son certificat autosigné. Il prépare les fichiers sans activer HTTPS : l’application reste accessible en HTTP sur le port 8080.
+- `gen-certif.sh` génère un certificat autosigné générique, sans saisie, argument ni adresse IP. Il prépare les fichiers sans activer HTTPS.
 
 Ces scripts peuvent être relancés : APT conserve les paquets installés, la construction réutilise son cache et Compose conserve les volumes. Les scripts ne configurent ni groupe Docker ni pare-feu.
 
 ### Certificat autosigné
 
-Exécute `gen-certif.sh` sur la VM après `deploy.sh`. Pour fournir l’IPv4 publique sans saisie interactive, avec `VM_IP` déjà renseignée :
+Exécute `gen-certif.sh` sur la VM :
 
 ```bash
 cd /opt/simple-app
-bash gen-certif.sh "${VM_IP}"
+bash gen-certif.sh
 ```
 
-Le certificat utilise une clé RSA de 3072 bits, une signature SHA-256 et une validité de 30 jours. Son extension SAN contient l’IPv4 publique saisie, `127.0.0.1` et le nom `localhost`. L’IP dans le SAN permet de vérifier la correspondance du certificat avec un accès par IP, sans DNS. Elle doit être l’adresse utilisée par le navigateur.
+Le certificat générique utilise `CN=Simple App`, une clé RSA de 3072 bits, une signature SHA-256 et une validité de 30 jours. Il ne contient aucune extension SAN ni adresse IP. Sa génération ne demande ni saisie ni argument.
 
-- `/opt/simple-app/certs/server.crt` : certificat public, dont l’empreinte SHA-256, les dates et les SAN sont affichés par le script. Tu peux partager le certificat et son empreinte pour vérifier son identité.
+- `/opt/simple-app/certs/server.crt` : certificat public, dont l’empreinte SHA-256 et les dates sont affichées par le script. Tu peux partager le certificat et son empreinte pour vérifier son identité.
 - `/opt/simple-app/certs/server.key` : clé privée, avec les droits `0600`, dans le dossier `certs/` en `0700`. Ne la partage pas et ne la copie pas dans Git, cloud-init ou un échange de diagnostic. Le dossier est exclu de Git et du contexte de construction Docker.
 
-Une paire existante valide est conservée, sans nouvelle demande d’IP. Si tu fournis une autre IP en argument, le script refuse de remplacer le certificat. Une paire incomplète, invalide ou expirée provoque aussi un arrêt, sans écrasement. Le renouvellement est manuel : déplace le dossier `certs/` entier dans une archive privée, en conservant ses droits, puis relance la génération avec l’IP actuelle. Le script crée un nouveau dossier ; il refuse aussi de réutiliser un dossier vide déjà présent. Un changement d’IP demande un nouveau certificat.
+Une paire existante valide est conservée, sans écrasement, y compris un ancien certificat contenant des IP. Pour obtenir le nouveau certificat générique, renouvelle cette paire manuellement. Une paire incomplète, invalide ou expirée provoque un arrêt. Le renouvellement est manuel : déplace le dossier `certs/` entier dans une archive privée, en conservant ses droits, puis relance la génération. Le script crée un nouveau dossier ; il refuse aussi de réutiliser un dossier vide déjà présent. Un changement d’IP ne demande pas de régénérer ce certificat générique.
 
-Un certificat autosigné n’est pas reconnu automatiquement par les navigateurs : établir sa confiance est une étape distincte. Ces fichiers devront aussi être raccordés à un service TLS pour servir l’application en HTTPS. Leur génération seule ne chiffre pas le trafic HTTP et ne justifie pas de passer `SESSION_COOKIE_SECURE` à `true`.
+Le navigateur signalera deux problèmes distincts : le certificat autosigné n’est pas reconnu par une autorité de confiance, et son nom générique ne correspond pas à l’adresse IP de la VM. Accepter une exception de confiance ne corrige pas la correspondance du nom. Ce certificat sert au TP ; il ne fournit pas une identité serveur validée pour un usage réel.
+
+Avant d’accepter une exception dans le navigateur, compare l’empreinte SHA-256 du certificat présenté avec celle lue sur la VM par SSH :
+
+```bash
+openssl x509 -in /opt/simple-app/certs/server.crt -noout -fingerprint -sha256
+```
+
+La génération seule ne chiffre pas le trafic : le certificat et sa clé doivent être raccordés au service HTTPS. Le cookie de session porte toujours l’attribut `Secure`, imposé dans le code de l’application. HTTPS est donc nécessaire au fonctionnement des sessions dans le navigateur.
 
 ## Vérifier puis se connecter
 
@@ -111,18 +118,17 @@ curl --fail http://127.0.0.1:8080/health
 hostname
 ```
 
-Le service web doit être sain et `/health` doit répondre sans erreur. Depuis ton poste, définis à nouveau `VM_IP` dans ce terminal puis teste :
+Le service web doit être sain et `/health` doit répondre sans erreur. Depuis un poste autorisé à joindre le backend, définis à nouveau `VM_IP` dans ce terminal puis teste :
 
 ```bash
 printf 'IP publique de la VM : '
 read -r VM_IP
 curl --fail "http://${VM_IP}:8080/health"
-printf 'Adresse à ouvrir dans le navigateur : http://%s:8080/\n' "${VM_IP}"
 ```
 
-Ouvre cette adresse dans ton navigateur, choisis librement ton login et saisis le mot de passe commun du lab. Il ne s’agit pas de comptes individuels avec des mots de passe distincts. Après connexion, la page affiche le login et le hostname de la VM : compare-le avec la commande `hostname`.
+Un résultat HTTP 200 sur `/health` valide uniquement le backend. Il ne valide ni HTTPS ni une session authentifiée dans le navigateur. Raccorde le certificat et sa clé à ton service HTTPS, puis ouvre son adresse HTTPS pour te connecter. Le backend HTTP seul ne permet pas de conserver une session lors d’un accès distant.
 
-`localhost` dans le navigateur désigne ton poste, pas la VM distante. Pour cet accès direct, utilise l’IP publique et le port **8080**.
+Une fois l’accès HTTPS opérationnel, choisis librement ton login et saisis le mot de passe commun du lab. Il ne s’agit pas de comptes individuels avec des mots de passe distincts. Après connexion, la page affiche le login et le hostname de la VM : compare-le avec la commande `hostname`. `localhost` dans le navigateur désigne ton poste, pas la VM distante.
 
 Pour consulter le mot de passe, l’administrateur exécute sur la VM :
 
@@ -139,30 +145,29 @@ Le fichier `config.sh`, à côté des scripts, contient les choix du déploiemen
 ```bash
 STORAGE_MODE=text
 SESSION_STORAGE=memory
-SESSION_COOKIE_SECURE=false
 APP_BIND=127.0.0.1
 APP_HOSTS=localhost,127.0.0.1
 ```
 
 - `STORAGE_MODE=text` utilise `/data/messages.txt` dans le volume Docker `simple-app_messages_data`, local à cette instance. `postgres` démarre aussi PostgreSQL et utilise `simple-app_postgres_data`. Changer de mode ne transfère pas les messages.
 - `SESSION_STORAGE=memory` garde les sessions côté serveur dans le processus web : un redémarrage déconnecte les utilisateurs. `file` utilise `/sessions` dans le volume local `simple-app_session_data` et conserve les sessions lors des redémarrages.
-- `SESSION_COOKIE_SECURE=false` permet l’accès HTTP du TP. Utilise `true` lorsque l’accès navigateur est réellement en HTTPS ; cette option seule ne met pas TLS en place.
+- Le cookie de session porte toujours l’attribut `Secure`. Ce comportement est fixé dans le code et ne peut pas être désactivé dans `config.sh`, Compose ou une variable d’environnement. L’accès navigateur doit être en HTTPS pour conserver la session.
 - `APP_BIND=127.0.0.1` limite la publication au poste ou à la VM. `0.0.0.0` publie le port 8080 sur les interfaces de l’hôte ; les restrictions réseau doivent alors être définies séparément.
 - `APP_HOSTS` est la liste des noms ou IP acceptés dans l’en-tête HTTP Host, séparés par des virgules. Ajoute les noms réellement utilisés pour accéder à l’application.
 
 Le script transmet le hostname de la VM, et non celui du conteneur. Les sources et `config.sh` restent dans `/opt/simple-app` ; les messages et sessions sont dans les volumes Docker de cette VM. Les journaux sont ceux des conteneurs Docker.
 
-Pour un usage durable ou des données réelles, prévois HTTPS. `deploy.sh` affiche un avertissement lorsque le port HTTP est publié sur le réseau.
+`deploy.sh` rappelle que le backend HTTP ne suffit pas à l’accès authentifié distant. Pour un usage durable ou des données réelles, utilise un certificat approuvé dont le nom correspond à l’adresse HTTPS.
 
-### Tunnel SSH facultatif
+### Tunnel SSH pour contrôler le backend
 
-L’accès direct décrit ci-dessus n’a pas besoin de tunnel. Pour un accès individuel chiffré entre ton poste et la VM, tu peux garder `APP_BIND=127.0.0.1` avec `APP_HOSTS=localhost,127.0.0.1`. Sur ton poste, définis `VM_USER` avec ton compte SSH de la VM et `VM_IP` avec son IP publique, puis lance :
+Pour contrôler le backend sans publier TCP 8080 sur le réseau, garde `APP_BIND=127.0.0.1` avec `APP_HOSTS=localhost,127.0.0.1`. Sur ton poste, définis `VM_USER` avec ton compte SSH de la VM et `VM_IP` avec son IP publique, puis lance :
 
 ```bash
 ssh -N -L 18080:127.0.0.1:8080 "${VM_USER}@${VM_IP}"
 ```
 
-Ouvre ensuite `http://localhost:18080/` sur ton poste. **18080** est uniquement le port local de ce tunnel facultatif ; l’application reste publiée sur le port **8080** de la VM.
+Dans un autre terminal de ton poste, exécute `curl --fail http://localhost:18080/health`. **18080** est uniquement le port local du tunnel ; le backend écoute sur le port **8080** de la VM. Le tunnel chiffre son trajet SSH mais ne crée pas une adresse HTTPS pour le navigateur : il ne remplace pas le raccordement TLS nécessaire à l’accès authentifié distant.
 
 ## Identifiants privés
 
@@ -193,10 +198,10 @@ Depuis ce dossier, avec un moteur Docker actif et Compose V2 :
 ```bash
 docker compose build
 docker run --rm --user 0 --volume "${PWD}/secrets:/credentials" simple-app-web python prepare_secrets.py
-STORAGE_MODE=text SESSION_STORAGE=memory SESSION_COOKIE_SECURE=false APP_BIND=127.0.0.1 APP_HOSTS=localhost,127.0.0.1 INSTANCE_HOSTNAME="$(hostname)" docker compose up -d --no-build --wait --wait-timeout 120
+STORAGE_MODE=text SESSION_STORAGE=memory APP_BIND=127.0.0.1 APP_HOSTS=localhost,127.0.0.1 INSTANCE_HOSTNAME="$(hostname)" docker compose up -d --no-build --wait --wait-timeout 120
 ```
 
-Pour PostgreSQL, utilise `STORAGE_MODE=postgres` et ajoute `--profile postgres` à la commande Compose. Consulte localement `secrets/password.txt` avec les droits nécessaires, puis ouvre [http://localhost:8080/](http://localhost:8080/).
+Pour PostgreSQL, utilise `STORAGE_MODE=postgres` et ajoute `--profile postgres` à la commande Compose. Vérifie le backend avec `curl --fail http://localhost:8080/health`. Le certificat se génère avec `bash gen-certif.sh` ; son raccordement HTTPS est à réaliser séparément pour l’accès navigateur. Consulte localement `secrets/password.txt` avec les droits nécessaires.
 
 ## Données et journaux
 
@@ -249,7 +254,7 @@ Les volumes nommés sont gérés par Docker, habituellement sous `/var/lib/docke
 
 Les formulaires de connexion, d’ajout et de déconnexion sont protégés contre les requêtes sans jeton CSRF. Les messages sont limités à 500 caractères, la liste à 1000 messages et le fichier à 1 Mio. Les tentatives de connexion et ajouts sont limités par IP et par instance. Plusieurs étudiants derrière la même IP partagent ces limites.
 
-Le login libre sert à observer la session ; il ne prouve pas une identité. Utilise des messages de test. La [revue OWASP](security_best_practices_report.md) documente les contrôles réalisés et les points restant à traiter, dont HTTPS, les avis système résiduels et le rôle PostgreSQL de démonstration avant un usage Internet de ce mode.
+Le login libre sert à observer la session ; il ne prouve pas une identité. Utilise des messages de test. La [revue OWASP](security_best_practices_report.md) documente les contrôles réalisés et les limites, dont l’absence de recette HTTPS, les avis système résiduels et le rôle PostgreSQL de démonstration avant un usage Internet de ce mode.
 
 ## Arrêter, reprendre et changer de mode
 
@@ -295,6 +300,6 @@ runcmd:
   - [bash, /opt/simple-app/deploy.sh]
 ```
 
-Ce fragment lance l’installation, la construction et le déploiement. Configure séparément les règles réseau et génère ensuite le certificat avec `bash gen-certif.sh "${VM_IP}"`. La configuration livrée dans Git reste locale par défaut.
+Ce fragment lance l’installation, la construction et le déploiement. Configure séparément les règles réseau, génère ensuite le certificat avec `bash gen-certif.sh` et raccorde ton service HTTPS. La configuration livrée dans Git reste locale par défaut.
 
 Sources : paquets Ubuntu [Docker](https://packages.ubuntu.com/noble/docker.io), [Compose V2](https://packages.ubuntu.com/noble/docker-compose-v2), [Buildx](https://packages.ubuntu.com/noble/docker-buildx) et [commande Compose](https://docs.docker.com/reference/cli/docker/compose/up/).

@@ -8,7 +8,6 @@ services:
     environment:
       STORAGE_MODE: ${STORAGE_MODE:-text}
       SESSION_STORAGE: ${SESSION_STORAGE:-memory}
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       APP_HOSTS: ${APP_HOSTS:-localhost,127.0.0.1}
       INSTANCE_HOSTNAME: ${INSTANCE_HOSTNAME:-non renseignée}
       MESSAGE_FILE: /data/messages.txt
