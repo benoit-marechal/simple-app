@@ -1,5 +1,7 @@
 import fcntl
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import psycopg
 
@@ -45,11 +47,14 @@ def lire_messages():
             return messages
 
 
-# Enregistrer un ajout après validation du formulaire : appelée par POST / ;
-# le verrou empêche deux requêtes de dépasser ensemble la capacité autorisée.
-def ajouter_message(contenu):
+# Dater et attribuer un ajout validé par POST /, puis le conserver une seule fois ;
+# sans ce préfixe, la lecture perdrait l'heure et le login de son auteur.
+# Les verrous libérés à la fermeture/fin de transaction bornent les ajouts simultanés.
+def ajouter_message(contenu, login):
+    date_heure = datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m/%Y %H:%M:%S")
+    contenu = " ".join(contenu.splitlines())
+    contenu = f"{date_heure} - {login}: {contenu}"
     if storage_mode == "text":
-        contenu = " ".join(contenu.splitlines())
         with open(message_file, "a+", encoding="utf-8") as fichier:
             fcntl.flock(fichier, fcntl.LOCK_EX)
             taille = os.path.getsize(message_file)

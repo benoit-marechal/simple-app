@@ -24,6 +24,14 @@ fi
 # Le conteneur temporaire crée les fichiers privés une seule fois ; les relances les conservent.
 sudo --preserve-env=APP_PASSWORD,APP_SECRET_KEY docker run --rm --user 0 -e APP_PASSWORD -e APP_SECRET_KEY --volume "${PWD}/secrets:/credentials" simple-app-web python prepare_secrets.py
 
+# Adapter aussi une base déjà remplie avant de démarrer le nouveau web.
+# --single-transaction garde le verrou SQL jusqu'à la fin et annule tout en cas d'erreur.
+if [[ "${STORAGE_MODE}" == postgres ]]; then
+    sudo STORAGE_MODE="${STORAGE_MODE}" docker compose --profile postgres up -d --no-build --wait --wait-timeout 120 db
+    sudo STORAGE_MODE="${STORAGE_MODE}" docker compose --profile postgres exec -T db \
+        psql -X --single-transaction --file=- -v ON_ERROR_STOP=1 -U simple_app -d simple_app < migrate.sql
+fi
+
 # Démarrer l'image déjà construite et attendre les services sains, au plus 120 s.
 sudo STORAGE_MODE="${STORAGE_MODE}" SESSION_STORAGE="${SESSION_STORAGE}" APP_BIND="${APP_BIND}" APP_HOSTS="${APP_HOSTS:-}" INSTANCE_HOSTNAME="$(hostname)" docker compose --profile "${STORAGE_MODE}" up -d --no-build --wait --wait-timeout 120
 # En cas d'échec : sudo docker compose logs --tail=100 web db

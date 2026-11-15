@@ -98,7 +98,7 @@ def index():
         contenu = request.form.get("contenu", "").strip()
         if not 1 <= len(contenu) <= 500:
             return "Le message doit contenir de 1 à 500 caractères.", 400
-        if not ajouter_message(contenu):
+        if not ajouter_message(contenu, session["login"]):
             return "La liste des messages est pleine.", 409
         return redirect(url_for("index"), code=303)
     return render_template("index.html", messages=lire_messages(), instance_hostname=instance_hostname)

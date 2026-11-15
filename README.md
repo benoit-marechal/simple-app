@@ -1,6 +1,6 @@
 # Simple App
 
-Un formulaire enregistre des messages dans un fichier texte ou PostgreSQL 16. La page affiche les messages, le login choisi et le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
+Un formulaire enregistre des messages dans un fichier texte ou PostgreSQL 16. Chaque nouveau message contient sa date et son heure avec les secondes, à l’heure de Paris, puis le login de son auteur : `15/11/2026 14:32:08 - benoit: Bonjour`. Le login vient de la session connectée. Les anciens messages restent inchangés, sans date ni auteur ajoutés rétroactivement. La page affiche aussi le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
 
 ## Installer sur une VM Ubuntu 24.04
 
@@ -109,7 +109,7 @@ Le cookie de session conserve `HttpOnly` et `SameSite=Lax`, sans attribut `Secur
 
 `prepare_secrets.py` crée une clé aléatoire, un mot de passe aléatoire et son hash scrypt dans `secrets/`. Le répertoire a les droits `0700`, les fichiers `0600`, propriétaire UID/GID 1000. Le dossier est exclu de Git et du contexte de construction Docker.
 
-Aucune valeur existante n’est remplacée lors d’une relance. Un ensemble incomplet provoque un arrêt : l’inspecter localement avant toute intervention, sans supprimer les identifiants d’un déploiement existant. L’application ne nécessite aucun fichier `.env`.
+Aucune valeur existante n’est remplacée lors d’une relance, d’une reconstruction ou d’un redémarrage. Un nouveau dossier de secrets vide produit de nouveaux identifiants ; un ensemble incomplet provoque un arrêt. Le fichier `password.txt` appartient au stockage du déploiement : une copie locale ne se synchronise pas avec une VM ou un partage NFS. Sur NFS, consulter le fichier du partage utilisé par les deux web. L’application vérifie le hash, donc modifier uniquement `password.txt` ne change pas le mot de passe accepté. L’application ne nécessite aucun fichier `.env`.
 
 Avant le premier déploiement seulement, les variables exportées `APP_PASSWORD` et `APP_SECRET_KEY` permettent de fournir des valeurs communes à plusieurs VM. La clé doit contenir au moins 32 caractères. `deploy.sh` transmet uniquement ces deux variables à travers `sudo`, par leurs noms ; il ne place pas leurs valeurs dans la ligne de commande et ne les affiche pas. La politique `sudo` du compte doit autoriser leur conservation si cette option est utilisée.
 
@@ -169,14 +169,20 @@ sudo docker compose exec web cat /data/messages.txt
 sudo docker volume inspect simple-app_messages_data --format '{{.Mountpoint}}'
 ```
 
-Le fichier est créé au premier ajout ; chaque ligne contient un message et les retours à la ligne saisis sont remplacés par des espaces. En mode PostgreSQL :
+Le fichier est créé au premier ajout ; chaque nouvelle ligne contient `JJ/MM/AAAA HH:MM:SS - login: message`. La date est fixée lors de l’ajout, pas lors du rechargement. Les retours à la ligne saisis sont remplacés par des espaces dans les deux stockages. La saisie reste limitée à 500 caractères ; la contrainte SQL autorise 600 caractères avec le préfixe. En mode PostgreSQL :
 
 ```bash
 sudo docker compose --profile postgres exec db psql -U simple_app -d simple_app -c 'SELECT id, contenu FROM messages ORDER BY id;'
 sudo docker compose --profile postgres logs --tail=100 db
 ```
 
-`init.sql` initialise la table lors du premier démarrage PostgreSQL avec un volume vide. Le mot de passe PostgreSQL de démonstration figure dans Compose ; la base n’a aucun port publié sur l’hôte.
+`init.sql` initialise la table lors du premier démarrage PostgreSQL avec un volume vide. `deploy.sh` applique aussi `migrate.sql` avant de lancer le web en mode PostgreSQL : la contrainte de longueur est mise à jour sans modifier les messages existants. Pour un lancement manuel sur un ancien volume, après démarrage du service `db`, exécuter la migration avant le web :
+
+```bash
+docker compose --profile postgres exec -T db psql -X --single-transaction --file=- -v ON_ERROR_STOP=1 -U simple_app -d simple_app < migrate.sql
+```
+
+Le mot de passe PostgreSQL de démonstration figure dans Compose ; la base n’a aucun port publié sur l’hôte.
 
 Les sessions fichier sont dans `/sessions`, au sein du volume `simple-app_session_data`. Pour retrouver son répertoire sur la VM, sans afficher les sessions :
 
