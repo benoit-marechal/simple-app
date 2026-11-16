@@ -129,6 +129,31 @@ class ImagesFormulaireTest(unittest.TestCase):
         self.assertIn("img-src https://s3.example.com;", response.headers["Content-Security-Policy"])
         self.assertIn("script-src 'none'", response.headers["Content-Security-Policy"])
 
+    # Placer la saisie avant le fil et inverser seulement l'affichage ; sans ce cas,
+    # les nouveaux messages pourraient revenir sous l'historique après une modification du template.
+    def test_formulaire_en_haut_et_messages_recents_en_premier(self):
+        self.lecture.return_value = [
+            {"contenu": "Ancien message", "image_key": None},
+            {"contenu": "Message intermédiaire", "image_key": None},
+            {"contenu": "Dernier message", "image_key": None},
+        ]
+        body = self.client.get("/").get_data(as_text=True)
+        self.assertLess(body.index('id="contenu"'), body.index('aria-label="Messages"'))
+        self.assertLess(body.index("Dernier message"), body.index("Message intermédiaire"))
+        self.assertLess(body.index("Message intermédiaire"), body.index("Ancien message"))
+
+    # Un texte sans pièce jointe doit rester un simple texte ; sans ce contrôle,
+    # un emplacement d'image vide ou un message d'erreur pourrait apparaître à chaque ligne.
+    def test_message_sans_image_sans_emplacement_reserve(self):
+        self.lecture.return_value = [{"contenu": "Texte seul", "image_key": None}]
+        body = self.client.get("/").get_data(as_text=True)
+        item = body.split("<li>", 1)[1].split("</li>", 1)[0]
+        self.assertIn("Texte seul", item)
+        self.assertNotIn("<img", item)
+        self.assertNotIn("image-message", item)
+        self.assertNotIn("image-indisponible", item)
+        self.sdk.generate_presigned_url.assert_not_called()
+
     # Une panne de signature ne doit pas empêcher la lecture des textes ni boucler sur chaque image.
     def test_images_indisponibles_textes_lisibles(self):
         self.lecture.return_value = [
