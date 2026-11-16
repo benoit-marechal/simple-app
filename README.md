@@ -1,6 +1,6 @@
 # Simple App
 
-Un formulaire enregistre des messages dans un fichier texte ou PostgreSQL 16. Chaque nouveau message contient sa date et son heure avec les secondes, à l’heure de Paris, puis le login de son auteur : `15/11/2026 14:32:08 - benoit: Bonjour`. Le login vient de la session connectée. Les anciens messages restent inchangés, sans date ni auteur ajoutés rétroactivement. La page affiche aussi le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
+Un formulaire enregistre des messages dans un fichier ou PostgreSQL 16, avec une image facultative dans un stockage objet compatible S3. Chaque nouveau message contient sa date et son heure avec les secondes, à l’heure de Paris, puis le login de son auteur : `15/11/2026 14:32:08 - benoit: Bonjour`. Le login vient de la session connectée. Les anciens messages restent lisibles, sans date ni auteur ajoutés rétroactivement. La page affiche aussi le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
 
 ## Installer sur une VM Ubuntu 24.04
 
@@ -58,7 +58,7 @@ bash deploy.sh
 
 - `install.sh` vérifie Ubuntu 24.04, installe `docker.io`, `docker-compose-v2`, `docker-buildx` et `curl`, puis active Docker. Le dépôt Ubuntu `universe` doit être activé.
 - `build.sh` construit l’image web sans lancer l’application.
-- `deploy.sh` génère les identifiants privés au premier lancement, conserve ceux déjà présents, démarre les services et vérifie `/health`.
+- `deploy.sh` génère les identifiants privés au premier lancement, conserve ceux déjà présents, ajoute l'override S3 s'il existe, démarre les services et vérifie `/health`.
 
 Ces scripts peuvent être relancés : APT conserve les paquets installés, la construction réutilise son cache et Compose conserve les volumes. Les scripts ne configurent ni groupe Docker ni pare-feu.
 
@@ -83,7 +83,7 @@ Pour consulter le mot de passe, l’administrateur exécute sur la VM :
 sudo cat /opt/simple-app/secrets/password.txt
 ```
 
-Conserver cette valeur hors des dépôts et des échanges de diagnostic. Le conteneur web reçoit uniquement le hash du mot de passe et la clé de signature, montés en lecture seule ; le fichier du mot de passe en clair reste sur la VM.
+Conserver cette valeur hors des dépôts et des échanges de diagnostic. Pour l'authentification, le conteneur web reçoit le hash du mot de passe et la clé de signature, montés en lecture seule ; le fichier du mot de passe en clair reste sur la VM.
 
 ## Configuration publique
 
@@ -104,6 +104,26 @@ APP_HOSTS=
 Le script transmet le hostname de la VM, et non celui du conteneur. Les sources et `config.sh` restent dans `/opt/simple-app` ; les messages et sessions sont dans les volumes Docker de cette VM. Les journaux sont ceux des conteneurs Docker.
 
 Le cookie de session conserve `HttpOnly` et `SameSite=Lax`, sans attribut `Secure` émis par l’application. Si cette protection est souhaitée côté navigateur, le LB doit ajouter explicitement `Secure` aux cookies, s’il propose cette fonction ; terminer TLS ne l’ajoute pas automatiquement.
+
+## Images dans un stockage objet S3
+
+Chaque message peut contenir une image JPEG, PNG ou WebP de 5 Mio maximum. Le texte reste obligatoire. Le fichier est vérifié puis envoyé dans le bucket avec un nom unique ; ses octets sont conservés sans redimensionnement ni réencodage. La page réduit seulement son affichage en CSS. Le navigateur télécharge donc toujours l'original complet.
+
+Le raccordement S3 utilise un override Compose indépendant, `/etc/simple-app/s3.yml`, ajouté automatiquement par `deploy.sh` lorsqu'il existe. Il fournit les paramètres suivants au service `web` :
+
+- `S3_ENDPOINT_URL` : URL HTTPS de l'API S3.
+- `S3_REGION` : région utilisée pour la signature S3.
+- `S3_BUCKET` : nom du bucket privé.
+- `AWS_SHARED_CREDENTIALS_FILE=/run/s3/credentials` : fichier de clés standard du SDK, monté en lecture seule depuis `/etc/simple-app/s3-credentials`.
+- `AWS_EC2_METADATA_DISABLED=true` : utiliser les clés du fichier sans recherche d'identifiants EC2.
+
+Le fichier privé appartient à UID/GID 1000 et possède les droits `0600` ; son dossier hôte est réservé à l'administrateur. Il reste hors du clone Git et de l'image Docker. Aucune clé secrète S3 n'est envoyée au navigateur. Les images utilisent des URL de lecture signées valables une heure, renouvelées à chaque affichage de la page ; leur détenteur peut les utiliser jusqu'à leur expiration.
+
+Sans configuration S3, les messages texte continuent à fonctionner. L'envoi d'une image sans raccordement ou pendant une panne S3 est refusé avec une erreur compréhensible ; il n'ajoute pas de message pointant vers une image absente. Si l'enregistrement du message échoue après l'envoi, l'application tente de retirer l'objet créé.
+
+La requête complète est limitée à 6 Mio pour inclure le formulaire et son image ; le proxy HTTP placé devant l'application doit accepter cette taille. Le répertoire temporaire du conteneur est borné à 64 Mio. Les octets des images ne sont stockés ni dans les messages, ni dans PostgreSQL : seule leur clé S3 est conservée avec le texte.
+
+Pour conserver le raccordement lors d'une mise à jour, utiliser `bash deploy.sh`. Une commande Compose manuelle qui recrée le web doit inclure `-f docker-compose.yml -f /etc/simple-app/s3.yml`.
 
 ## Identifiants privés
 
@@ -169,14 +189,14 @@ sudo docker compose exec web cat /data/messages.txt
 sudo docker volume inspect simple-app_messages_data --format '{{.Mountpoint}}'
 ```
 
-Le fichier est créé au premier ajout ; chaque nouvelle ligne contient `JJ/MM/AAAA HH:MM:SS - login: message`. La date est fixée lors de l’ajout, pas lors du rechargement. Les retours à la ligne saisis sont remplacés par des espaces dans les deux stockages. La saisie reste limitée à 500 caractères ; la contrainte SQL autorise 600 caractères avec le préfixe. En mode PostgreSQL :
+Le fichier est créé au premier ajout. Chaque nouvelle ligne est un objet JSON avec `contenu` et `image_key` ; les anciennes lignes de texte restent lisibles. Le contenu affiché conserve le format `JJ/MM/AAAA HH:MM:SS - login: message`. La date est fixée lors de l’ajout, pas lors du rechargement. Les retours à la ligne saisis sont remplacés par des espaces dans les deux stockages. La saisie reste limitée à 500 caractères ; la contrainte SQL autorise 600 caractères avec le préfixe. En mode PostgreSQL :
 
 ```bash
-sudo docker compose --profile postgres exec db psql -U simple_app -d simple_app -c 'SELECT id, contenu FROM messages ORDER BY id;'
+sudo docker compose --profile postgres exec db psql -U simple_app -d simple_app -c 'SELECT id, contenu, image_key FROM messages ORDER BY id;'
 sudo docker compose --profile postgres logs --tail=100 db
 ```
 
-`init.sql` initialise la table lors du premier démarrage PostgreSQL avec un volume vide. `deploy.sh` applique aussi `migrate.sql` avant de lancer le web en mode PostgreSQL : la contrainte de longueur est mise à jour sans modifier les messages existants. Pour un lancement manuel sur un ancien volume, après démarrage du service `db`, exécuter la migration avant le web :
+`init.sql` initialise la table lors du premier démarrage PostgreSQL avec un volume vide. `deploy.sh` applique aussi `migrate.sql` avant de lancer le web en mode PostgreSQL : la colonne facultative `image_key` et la contrainte de longueur sont adaptées sans modifier les messages existants. Pour un lancement manuel sur un ancien volume, après démarrage du service `db`, exécuter la migration avant le web :
 
 ```bash
 docker compose --profile postgres exec -T db psql -X --single-transaction --file=- -v ON_ERROR_STOP=1 -U simple_app -d simple_app < migrate.sql

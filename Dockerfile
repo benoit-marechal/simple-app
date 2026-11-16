@@ -11,11 +11,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 COPY messages.py .
+COPY object_storage.py .
 COPY session_files.py .
 COPY prepare_secrets.py .
 COPY templates/ templates/
 
-RUN mkdir /data /sessions && chown 1000:1000 /data /sessions
+RUN mkdir /data /sessions /run/s3 && chown 1000:1000 /data /sessions
 USER 1000:1000
 EXPOSE 8000
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "4", "--access-logfile", "-", "--error-logfile", "-", "app:app"]

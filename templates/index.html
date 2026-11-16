@@ -12,6 +12,9 @@
     .instance { margin: 0 0 28px; color: #52657e; font-size: 0.875rem; overflow-wrap: anywhere; }
     ul { margin: 0 0 32px; padding: 0; list-style: none; }
     li { padding: 14px 0; border-bottom: 1px solid #e6ecf5; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .image-message { display: block; max-width: 100%; height: auto; margin-top: 12px; border-radius: 8px; }
+    .image-indisponible, .aide-image { color: #52657e; font-size: 0.875rem; }
+    input[type="file"] { max-width: 100%; }
     label { display: block; margin-bottom: 8px; font-weight: 600; }
     textarea { display: block; width: 100%; min-height: 96px; padding: 12px; border: 1px solid #a6b9d4; border-radius: 8px; font: inherit; resize: vertical; }
     textarea:focus-visible, button:focus-visible { outline: 3px solid #80b4ff; outline-offset: 3px; }
@@ -30,14 +33,23 @@
       <button type="submit">Se déconnecter</button>
     </form>
     <ul aria-label="Messages">
-      {% for contenu in messages %}
-      <li>{{ contenu }}</li>
+      {% for message in messages %}
+      <li>{{ message.contenu }}
+        {% if message.image_url %}
+        <img class="image-message" src="{{ message.image_url }}" alt="Image jointe au message" loading="lazy">
+        {% elif message.image_key %}
+        <p class="image-indisponible">Image temporairement indisponible.</p>
+        {% endif %}
+      </li>
       {% endfor %}
     </ul>
-    <form method="post" action="{{ url_for('index') }}">
+    <form method="post" action="{{ url_for('index') }}" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="contenu">Message</label>
       <textarea id="contenu" name="contenu" maxlength="500" required></textarea>
+      <label for="image">Image facultative</label>
+      <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="aide-image">
+      <p id="aide-image" class="aide-image">JPEG, PNG ou WebP, 5 Mio maximum. L'image originale est conservée.</p>
       <button type="submit">Ajouter</button>
     </form>
   </main>

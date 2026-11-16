@@ -10,8 +10,13 @@ from flask_limiter.util import get_remote_address
 from flask_session import Session
 from flask_wtf.csrf import CSRFError, CSRFProtect
 from werkzeug.security import check_password_hash
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from messages import ajouter_message, lire_messages
+from object_storage import (
+    ImageInvalide, StockageImagesIndisponible, envoyer_image, origine_images,
+    supprimer_image, url_image,
+)
 from session_files import SessionFileCache
 
 app = Flask(__name__)
@@ -32,7 +37,7 @@ else:
 allowed_hosts = os.environ.get("APP_HOSTS", "").strip()
 app.config.update(
     SECRET_KEY=secret_key,
-    MAX_CONTENT_LENGTH=16384,
+    MAX_CONTENT_LENGTH=6 * 1024 * 1024,
     TRUSTED_HOSTS=allowed_hosts.split(",") if allowed_hosts else None,
     SESSION_TYPE="cachelib",
     SESSION_CACHELIB=session_cache,
@@ -53,9 +58,10 @@ instance_hostname = os.environ.get("INSTANCE_HOSTNAME", "non renseignée")
 # le navigateur pourrait réutiliser une page privée ou accepter des contenus actifs.
 @app.after_request
 def proteger_reponse(reponse):
+    source_images = origine_images() or "'none'"
     reponse.headers["Content-Security-Policy"] = (
         "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; "
-        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        f"img-src {source_images}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     )
     reponse.headers["X-Content-Type-Options"] = "nosniff"
     reponse.headers["X-Frame-Options"] = "DENY"
@@ -87,8 +93,18 @@ def login():
     return render_template("login.html", erreur=erreur, instance_hostname=instance_hostname), statut
 
 
-# Conserver et afficher les messages : appelée sur GET/POST / ; sans elle,
-# un utilisateur connecté ne pourrait ni enregistrer un texte ni consulter la liste.
+# Nettoyer la pièce jointe après un refus ou une erreur du stockage des messages ;
+# une panne du nettoyage est signalée sans masquer l'erreur initiale du formulaire.
+def nettoyer_image_orpheline(cle):
+    if cle:
+        try:
+            supprimer_image(cle)
+        except StockageImagesIndisponible:
+            app.logger.warning("Une image sans message n'a pas pu être supprimée du stockage objet.")
+
+
+# Conserver texte et référence S3 après un POST validé, puis afficher les messages ;
+# sans cette route, l'image ne serait pas reliée à son auteur et à sa date.
 @app.route("/", methods=["GET", "POST"])
 @limiter.limit("60 per minute", methods=["POST"])
 def index():
@@ -98,10 +114,30 @@ def index():
         contenu = request.form.get("contenu", "").strip()
         if not 1 <= len(contenu) <= 500:
             return "Le message doit contenir de 1 à 500 caractères.", 400
-        if not ajouter_message(contenu, session["login"]):
+        images = request.files.getlist("image")
+        if len(images) > 1:
+            return "Joindre une seule image par message.", 400
+        cle = envoyer_image(images[0]) if images and images[0].filename else None
+        try:
+            ajoute = ajouter_message(contenu, session["login"], cle)
+        except Exception:
+            nettoyer_image_orpheline(cle)
+            raise
+        if not ajoute:
+            nettoyer_image_orpheline(cle)
             return "La liste des messages est pleine.", 409
         return redirect(url_for("index"), code=303)
-    return render_template("index.html", messages=lire_messages(), instance_hostname=instance_hostname)
+    messages = lire_messages()
+    images_indisponibles = False
+    for message in messages:
+        message["image_url"] = None
+        if message["image_key"] and not images_indisponibles:
+            try:
+                message["image_url"] = url_image(message["image_key"])
+            except StockageImagesIndisponible:
+                images_indisponibles = True
+                app.logger.warning("Les images sont indisponibles ; les messages restent lisibles.")
+    return render_template("index.html", messages=messages, instance_hostname=instance_hostname)
 
 
 # Fermer l'accès de l'utilisateur : appelée uniquement sur POST /logout ; sans elle,
@@ -135,3 +171,25 @@ def stockage_indisponible(erreur):
 @app.errorhandler(CSRFError)
 def formulaire_refuse(erreur):
     return "Formulaire expiré ou invalide. Recharge la page.", 400
+
+
+# Expliquer le refus avant tout ajout de message ; sans ces réponses contrôlées,
+# un fichier invalide ou une panne S3 produirait une erreur interne peu utile.
+@app.errorhandler(ImageInvalide)
+def image_refusee(erreur):
+    return str(erreur), 400
+
+
+# Garder les détails du fournisseur et des clés hors des réponses HTTP ; appelée
+# si l'envoi S3 échoue, cette réponse laisse l'utilisateur réessayer son message.
+@app.errorhandler(StockageImagesIndisponible)
+def images_indisponibles(erreur):
+    app.logger.warning("Le stockage des images est indisponible.")
+    return "Stockage des images temporairement indisponible. Le message n'a pas été ajouté.", 503
+
+
+# Borner le corps HTTP complet, en plus des 5 Mio par image ; sans ce contrôle,
+# les champs multipart pourraient contourner la limite de la pièce jointe.
+@app.errorhandler(RequestEntityTooLarge)
+def envoi_trop_volumineux(erreur):
+    return "L'envoi dépasse 6 Mio ; choisir une image de 5 Mio maximum.", 413

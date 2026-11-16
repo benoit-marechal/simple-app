@@ -2,6 +2,7 @@
 *
 !app.py
 !messages.py
+!object_storage.py
 !session_files.py
 !prepare_secrets.py
 !requirements.txt

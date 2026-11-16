@@ -24,6 +24,11 @@
     <h1>Simple App</h1>
     <p class="instance">Instance : {{ instance_hostname }}</p>
     {% if erreur %}<p class="erreur" role="alert">{{ erreur }}</p>{% endif %}
+    <!--
+      Mot de passe commun : /opt/simple-app/secrets/password.txt sur le serveur.
+      Avec le stockage partagé NFS : /mnt/simple-app/shared/credentials/password.txt.
+      Le login est libre : choisir le nom souhaité, dans la limite de 40 caractères.
+    -->
     <form method="post" action="{{ url_for('login') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="login">Login</label>
