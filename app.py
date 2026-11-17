@@ -4,7 +4,7 @@ from pathlib import Path
 
 import psycopg
 from cachelib import SimpleCache
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, abort, redirect, render_template, request, send_file, session, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_session import Session
@@ -14,12 +14,13 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from messages import ajouter_message, lire_messages
 from object_storage import (
-    ImageInvalide, StockageImagesIndisponible, envoyer_image, origine_images,
+    ImageInvalide, StockageImagesIndisponible, chemin_image, envoyer_image, mode_images, origine_images,
     supprimer_image, url_image,
 )
 from session_files import SessionFileCache
 
 app = Flask(__name__)
+mode_images()
 secret_key = Path("/run/secrets/secret_key").read_text().strip()
 password_hash = Path("/run/secrets/password_hash").read_text().strip()
 if len(secret_key) < 32 or not password_hash.startswith("scrypt:"):
@@ -100,10 +101,10 @@ def nettoyer_image_orpheline(cle):
         try:
             supprimer_image(cle)
         except StockageImagesIndisponible:
-            app.logger.warning("Une image sans message n'a pas pu être supprimée du stockage objet.")
+            app.logger.warning("Une image sans message n'a pas pu être supprimée du stockage.")
 
 
-# Conserver texte et référence S3 après un POST validé, puis afficher les messages ;
+# Conserver texte et référence d'image après un POST validé, puis afficher les messages ;
 # sans cette route, l'image ne serait pas reliée à son auteur et à sa date.
 @app.route("/", methods=["GET", "POST"])
 @limiter.limit("60 per minute", methods=["POST"])
@@ -140,6 +141,24 @@ def index():
     return render_template("index.html", messages=messages, instance_hostname=instance_hostname)
 
 
+# Servir un original local uniquement après connexion ; sans ce contrôle,
+# une URL d'image pourrait donner accès aux fichiers hors de la session privée.
+@app.get("/images/<filename>")
+def image_locale(filename):
+    if "login" not in session:
+        return redirect(url_for("login"), code=303)
+    if mode_images() != "local":
+        abort(404)
+    try:
+        chemin = chemin_image(f"images/{filename}")
+    except ImageInvalide:
+        abort(404)
+    try:
+        return send_file(chemin)
+    except FileNotFoundError:
+        abort(404)
+
+
 # Fermer l'accès de l'utilisateur : appelée uniquement sur POST /logout ; sans elle,
 # la session resterait utilisable après son départ.
 @app.post("/logout")
@@ -174,14 +193,14 @@ def formulaire_refuse(erreur):
 
 
 # Expliquer le refus avant tout ajout de message ; sans ces réponses contrôlées,
-# un fichier invalide ou une panne S3 produirait une erreur interne peu utile.
+# un fichier invalide ou une panne de stockage produirait une erreur interne peu utile.
 @app.errorhandler(ImageInvalide)
 def image_refusee(erreur):
     return str(erreur), 400
 
 
 # Garder les détails du fournisseur et des clés hors des réponses HTTP ; appelée
-# si l'envoi S3 échoue, cette réponse laisse l'utilisateur réessayer son message.
+# si l'envoi échoue, cette réponse laisse l'utilisateur réessayer son message.
 @app.errorhandler(StockageImagesIndisponible)
 def images_indisponibles(erreur):
     app.logger.warning("Le stockage des images est indisponible.")

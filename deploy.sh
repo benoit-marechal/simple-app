@@ -11,6 +11,11 @@ if [[ "${STORAGE_MODE:-}" != text && "${STORAGE_MODE:-}" != postgres ]]; then
     exit 1
 fi
 
+if [[ "${IMAGE_STORAGE:-}" != local && "${IMAGE_STORAGE:-}" != s3 ]]; then
+    printf 'Dans config.sh, IMAGE_STORAGE doit valoir local ou s3.\n' >&2
+    exit 1
+fi
+
 if [[ "${SESSION_STORAGE:-}" != memory && "${SESSION_STORAGE:-}" != file ]]; then
     printf 'Dans config.sh, SESSION_STORAGE doit valoir memory ou file.\n' >&2
     exit 1
@@ -40,7 +45,7 @@ if [[ "${STORAGE_MODE}" == postgres ]]; then
 fi
 
 # Démarrer l'image déjà construite et attendre les services sains, au plus 120 s.
-sudo STORAGE_MODE="${STORAGE_MODE}" SESSION_STORAGE="${SESSION_STORAGE}" APP_BIND="${APP_BIND}" APP_HOSTS="${APP_HOSTS:-}" INSTANCE_HOSTNAME="$(hostname)" "${compose[@]}" --profile "${STORAGE_MODE}" up -d --no-build --wait --wait-timeout 120
+sudo STORAGE_MODE="${STORAGE_MODE}" IMAGE_STORAGE="${IMAGE_STORAGE}" SESSION_STORAGE="${SESSION_STORAGE}" APP_BIND="${APP_BIND}" APP_HOSTS="${APP_HOSTS:-}" INSTANCE_HOSTNAME="$(hostname)" "${compose[@]}" --profile "${STORAGE_MODE}" up -d --no-build --wait --wait-timeout 120
 # En cas d'échec : sudo docker compose logs --tail=100 web db
 
 # Vérifier la page et son stockage avant d'annoncer le démarrage réussi.

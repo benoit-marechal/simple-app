@@ -7,6 +7,7 @@ services:
       - "${APP_BIND:-127.0.0.1}:8080:8000"
     environment:
       STORAGE_MODE: ${STORAGE_MODE:-text}
+      IMAGE_STORAGE: ${IMAGE_STORAGE:-local}
       SESSION_STORAGE: ${SESSION_STORAGE:-memory}
       APP_HOSTS: ${APP_HOSTS:-}
       INSTANCE_HOSTNAME: ${INSTANCE_HOSTNAME:-non renseignée}

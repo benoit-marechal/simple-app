@@ -1,5 +1,6 @@
 import io
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -36,6 +37,7 @@ class ImagesFormulaireTest(unittest.TestCase):
         application.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
         application.limiter.enabled = False
         self.environ = patch.dict(os.environ, {
+            "IMAGE_STORAGE": "s3",
             "S3_ENDPOINT_URL": "https://s3.example.com", "S3_REGION": "gra", "S3_BUCKET": "test-images",
         })
         self.environ.start()
@@ -190,6 +192,104 @@ class ImagesFormulaireTest(unittest.TestCase):
         self.assertEqual(self.client.get("/health").status_code, 200)
         self.sdk.put_object.assert_not_called()
         self.sdk.generate_presigned_url.assert_not_called()
+
+
+class ImagesLocalesFormulaireTest(unittest.TestCase):
+    # Exécuter le formulaire et la lecture de fichiers réels sans cloud ni stockage de messages persistant.
+    def setUp(self):
+        application.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        application.limiter.enabled = False
+        self.temporary = tempfile.TemporaryDirectory()
+        self.directory = Path(self.temporary.name) / "images"
+        self.environ = patch.dict(os.environ, {
+            "IMAGE_STORAGE": "local", "IMAGE_DIRECTORY": str(self.directory),
+        })
+        self.environ.start()
+        self.client = application.app.test_client()
+        with self.client.session_transaction() as session:
+            session["login"] = "alice"
+        self.ecriture_patch = patch("app.ajouter_message", return_value=True)
+        self.ecriture = self.ecriture_patch.start()
+        self.lecture_patch = patch("app.lire_messages", return_value=[])
+        self.lecture = self.lecture_patch.start()
+        self.sdk_patch = patch("object_storage.client_s3", side_effect=AssertionError("Aucun accès S3 attendu"))
+        self.sdk_patch.start()
+
+    # Nettoyer les données et les remplacements afin que chaque cas teste son propre état.
+    def tearDown(self):
+        self.sdk_patch.stop()
+        self.lecture_patch.stop()
+        self.ecriture_patch.stop()
+        self.environ.stop()
+        self.temporary.cleanup()
+
+    # Lier une image à un message, l'afficher depuis la même origine, puis en servir les octets originaux.
+    def test_envoi_affichage_et_lecture_authentifiee(self):
+        original = image_png()
+        response = self.client.post("/", data={"contenu": "Photo locale", "image": (io.BytesIO(original), "photo.png")})
+        self.assertEqual(response.status_code, 303)
+        cle = self.ecriture.call_args.args[2]
+        self.lecture.return_value = [{"contenu": "Photo locale", "image_key": cle}]
+        page = self.client.get("/")
+        self.assertIn(f'src="/{cle}"', page.get_data(as_text=True))
+        self.assertIn("img-src 'self';", page.headers["Content-Security-Policy"])
+        response = self.client.get("/" + cle)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, original)
+        self.assertEqual(response.mimetype, "image/png")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        response.close()
+        anonymous = application.app.test_client()
+        self.assertEqual(anonymous.get("/" + cle).status_code, 303)
+
+    # Annuler un upload après un refus ou une panne d'écriture du message, sans laisser de fichier orphelin.
+    def test_rollback_local_apres_refus_et_erreur_message(self):
+        for resultat, erreur, statut in ((False, None, 409), (None, OSError("Disque indisponible"), 503)):
+            with self.subTest(statut=statut):
+                self.ecriture.return_value = resultat
+                self.ecriture.side_effect = erreur
+                response = self.client.post("/", data={"contenu": "Photo", "image": (io.BytesIO(image_png()), "photo.png")})
+                self.assertEqual(response.status_code, statut)
+                self.assertEqual(list(self.directory.iterdir()), [])
+
+    # Garder les messages sans image sans emplacement réservé et refuser les chemins de lecture libres.
+    def test_texte_seul_et_chemins_refuses(self):
+        self.assertEqual(self.client.post("/", data={"contenu": "Texte seul"}).status_code, 303)
+        self.ecriture.assert_called_once_with("Texte seul", "alice", None)
+        self.lecture.return_value = [{"contenu": "Texte seul", "image_key": None}]
+        item = self.client.get("/").get_data(as_text=True).split("<li>", 1)[1].split("</li>", 1)[0]
+        self.assertNotIn("<img", item)
+        for url in ("/images/..", "/images/..%2Fsecret.txt", "/images/password.txt"):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 404)
+        self.directory.mkdir()
+        outside = Path(self.temporary.name) / "outside.png"
+        outside.write_bytes(b"prive")
+        name = "a" * 32 + ".png"
+        (self.directory / name).symlink_to(outside)
+        self.assertEqual(self.client.get("/images/" + name).status_code, 404)
+
+    # Le stockage local ne doit pas ouvrir la route d'image lorsque S3 est choisi.
+    def test_route_locale_absente_en_mode_s3(self):
+        with patch.dict(os.environ, {"IMAGE_STORAGE": "s3"}):
+            self.assertEqual(self.client.get("/images/" + "a" * 32 + ".png").status_code, 404)
+
+    # Distinguer un fichier absent d'une panne disque ; sans cette distinction,
+    # une ancienne référence ferait annoncer à tort une indisponibilité du service.
+    def test_image_absente_404_et_panne_disque_503(self):
+        url = "/images/" + "a" * 32 + ".png"
+        self.assertEqual(self.client.get(url).status_code, 404)
+        with patch("app.send_file", side_effect=PermissionError("Accès refusé")):
+            self.assertEqual(self.client.get(url).status_code, 503)
+
+    # Une panne du disque d'images doit laisser les textes lisibles, sans donner un lien cassé au navigateur.
+    def test_panne_lecture_images_conserve_les_textes(self):
+        self.lecture.return_value = [{"contenu": "Message lisible", "image_key": "images/" + "a" * 32 + ".png"}]
+        with patch("object_storage.chemin_image", side_effect=PermissionError("Accès refusé")):
+            response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Message lisible", response.get_data(as_text=True))
+        self.assertIn("Image temporairement indisponible", response.get_data(as_text=True))
 
 
 if __name__ == "__main__":

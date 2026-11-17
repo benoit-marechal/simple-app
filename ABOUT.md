@@ -1,9 +1,9 @@
-Application web Python avec authentification, liste de messages, image facultative sur S3, hostname de l’instance, stockage fichier ou PostgreSQL et sessions côté serveur.
+Application web Python avec authentification, liste de messages, image facultative sur disque ou S3, hostname de l’instance, stockage fichier ou PostgreSQL et sessions côté serveur.
 
 - [README.md](README.md) · Commandes de lancement, d’installation sur Ubuntu 24.04 et d’exploitation.
-- [app.py](app.py) · Gère les sessions, le formulaire texte et image, les erreurs d'envoi, puis affiche les messages et le hostname de l’hôte.
+- [app.py](app.py) · Gère les sessions, le formulaire texte et image, la lecture authentifiée des images locales et l'affichage des messages et du hostname.
 - [messages.py](messages.py) · Enregistre le texte daté et la clé de l'image en JSONL ou PostgreSQL ; conserve les anciens messages, les verrous et les limites.
-- [object_storage.py](object_storage.py) · Vérifie les images sans les transformer, envoie les originaux dans S3 et signe leurs URL de lecture temporaires.
+- [object_storage.py](object_storage.py) · Vérifie les images sans les transformer, conserve les originaux sur disque ou dans S3 et fournit leur adresse de lecture.
 - [session_files.py](session_files.py) · Sélectionne le sérialiseur JSON pour les sessions stockées sur disque.
 - [docker-compose.yml](docker-compose.yml) · Lance le web avec un espace temporaire borné, monte ses identifiants privés en lecture seule et conserve les volumes des données et sessions.
 - [Dockerfile](Dockerfile) · Construit l’image Python et lance Gunicorn.
@@ -11,13 +11,13 @@ Application web Python avec authentification, liste de messages, image facultati
 - [init.sql](init.sql) · Crée la table et deux messages lors de l’initialisation d’une base vide.
 - [migrate.sql](migrate.sql) · Ajoute la référence d'image facultative et adapte la contrainte de longueur PostgreSQL sans modifier les messages existants.
 - [test_messages.py](test_messages.py) · Vérifie le format, les références d'image, la compatibilité des anciens messages et les limites du fichier.
-- [test_object_storage.py](test_object_storage.py) · Vérifie les formats et tailles acceptés, la conservation des octets et les URL signées sans accès cloud.
-- [test_app_images.py](test_app_images.py) · Vérifie le formulaire multipart, CSRF, le retour arrière S3 et la lecture des textes pendant une panne d'images.
+- [test_object_storage.py](test_object_storage.py) · Vérifie les formats, les limites, les originaux locaux, les chemins autorisés et les signatures S3 sans accès cloud.
+- [test_app_images.py](test_app_images.py) · Vérifie le formulaire multipart, CSRF, les retours arrière, l'accès privé aux images locales et la lecture des textes pendant une panne d'images.
 - [install.sh](install.sh) · Installe Docker et Compose sur Ubuntu 24.04 et active le service Docker.
 - [build.sh](build.sh) · Construit l’image Python sans démarrer l’application.
 - [deploy.sh](deploy.sh) · Prépare les identifiants, conserve le raccordement S3 externe, démarre les services selon la configuration et vérifie leur santé HTTP.
 - [prepare_secrets.py](prepare_secrets.py) · Génère une seule fois les fichiers privés de signature et de mot de passe dans le dossier de déploiement exclu de Git.
-- [config.sh](config.sh) · Choisit le stockage des messages et sessions, la publication réseau et le filtrage Host facultatif.
+- [config.sh](config.sh) · Choisit le stockage des messages, images et sessions, la publication réseau et le filtrage Host facultatif.
 - [VERSION](VERSION) · Version de l’application.
 - [security_best_practices_report.md](security_best_practices_report.md) · Revue OWASP, tests de sécurité et limites de validation de l’exposition Internet.
 - [templates/](templates/ABOUT.md) · Pages HTML de connexion et de messages.

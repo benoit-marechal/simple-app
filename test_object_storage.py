@@ -1,6 +1,8 @@
 import io
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import Mock, patch
 
@@ -27,6 +29,7 @@ class ObjectStorageTest(unittest.TestCase):
     # Isoler le fournisseur et ses paramètres ; aucun test ne doit créer un objet cloud.
     def setUp(self):
         self.environ = patch.dict(os.environ, {
+            "IMAGE_STORAGE": "s3",
             "S3_ENDPOINT_URL": "https://s3.example.com", "S3_REGION": "gra", "S3_BUCKET": "test-images",
             "AWS_EC2_METADATA_DISABLED": "true",
         })
@@ -121,6 +124,7 @@ class ConfigurationSdkTest(unittest.TestCase):
     # Signer hors ligne avec des clés fictives ; ce test garantit l'origine et le chemin réellement produits par le SDK.
     def test_signature_sdk_path_style_sans_requete_reseau(self):
         configuration = {
+            "IMAGE_STORAGE": "s3",
             "S3_ENDPOINT_URL": "https://s3.example.com", "S3_REGION": "gra", "S3_BUCKET": "test-images",
             "AWS_ACCESS_KEY_ID": "cle-fictive", "AWS_SECRET_ACCESS_KEY": "secret-fictif",
             "AWS_EC2_METADATA_DISABLED": "true",
@@ -149,6 +153,55 @@ class ConfigurationSdkTest(unittest.TestCase):
                 sdk.assert_not_called()
         finally:
             object_storage.client_s3.cache_clear()
+
+
+class ImagesLocalesTest(unittest.TestCase):
+    # Utiliser un disque éphémère et aucun SDK ; sans cet isolement un test pourrait écrire dans /data.
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.directory = Path(self.temporary.name) / "images"
+        self.environ = patch.dict(os.environ, {
+            "IMAGE_STORAGE": "local", "IMAGE_DIRECTORY": str(self.directory),
+        })
+        self.environ.start()
+
+    # Retirer seulement les fichiers temporaires créés par les cas locaux.
+    def tearDown(self):
+        self.environ.stop()
+        self.temporary.cleanup()
+
+    # Conserver les octets et des droits privés ; sans ce cas un réencodage ou un appel cloud passerait inaperçu.
+    def test_original_local_sans_s3(self):
+        original = image_png()
+        with patch("object_storage.client_s3", side_effect=AssertionError("S3 interdit")):
+            cle = object_storage.envoyer_image(FileStorage(stream=io.BytesIO(original), filename="photo.png"))
+            chemin = object_storage.chemin_image(cle)
+            self.assertEqual(chemin.read_bytes(), original)
+            self.assertEqual(chemin.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(object_storage.url_image(cle), "/" + cle)
+            self.assertEqual(object_storage.origine_images(), "'self'")
+            object_storage.supprimer_image(cle)
+            self.assertFalse(chemin.exists())
+
+    # Ne jamais transformer une référence de message en chemin libre sur le disque.
+    def test_traversees_et_liens_symboliques_refuses(self):
+        for cle in ("../../secret", "images/../secret.png", "images/a.png", "/tmp/image.png"):
+            with self.subTest(cle=cle), self.assertRaises(object_storage.ImageInvalide):
+                object_storage.chemin_image(cle)
+        self.directory.mkdir()
+        outside = Path(self.temporary.name) / "outside.png"
+        outside.write_bytes(b"contenu prive")
+        cle = "images/" + "a" * 32 + ".png"
+        (self.directory / ("a" * 32 + ".png")).symlink_to(outside)
+        for action in (object_storage.chemin_image, object_storage.supprimer_image, object_storage.url_image):
+            with self.subTest(action=action.__name__), self.assertRaises(object_storage.ImageInvalide):
+                action(cle)
+        self.assertEqual(outside.read_bytes(), b"contenu prive")
+
+    # Une faute de configuration doit être explicite, sans choisir silencieusement un autre fournisseur.
+    def test_mode_inconnu_refuse(self):
+        with patch.dict(os.environ, {"IMAGE_STORAGE": "autre"}), self.assertRaises(ValueError):
+            object_storage.mode_images()
 
 
 if __name__ == "__main__":

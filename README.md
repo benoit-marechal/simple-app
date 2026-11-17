@@ -1,6 +1,6 @@
 # Simple App
 
-Un formulaire enregistre des messages dans un fichier ou PostgreSQL 16, avec une image facultative dans un stockage objet compatible S3. Chaque nouveau message contient sa date et son heure avec les secondes, à l’heure de Paris, puis le login de son auteur : `15/11/2026 14:32:08 - benoit: Bonjour`. Le login vient de la session connectée. Les anciens messages restent lisibles, sans date ni auteur ajoutés rétroactivement. La page affiche aussi le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
+Un formulaire enregistre des messages dans un fichier ou PostgreSQL 16, avec une image facultative stockée sur disque ou dans un service compatible S3. Chaque nouveau message contient sa date et son heure avec les secondes, à l’heure de Paris, puis le login de son auteur : `15/11/2026 14:32:08 - benoit: Bonjour`. Le login vient de la session connectée. Les anciens messages restent lisibles, sans date ni auteur ajoutés rétroactivement. La page affiche aussi le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
 
 ## Installer sur une VM Ubuntu 24.04
 
@@ -33,6 +33,7 @@ Dans `config.sh`, renseigner les valeurs suivantes :
 
 ```bash
 STORAGE_MODE=text
+IMAGE_STORAGE=local
 SESSION_STORAGE=memory
 APP_BIND=0.0.0.0
 ```
@@ -91,12 +92,14 @@ Le fichier `config.sh`, à côté des scripts, contient les choix du déploiemen
 
 ```bash
 STORAGE_MODE=text
+IMAGE_STORAGE=local
 SESSION_STORAGE=memory
 APP_BIND=127.0.0.1
 APP_HOSTS=
 ```
 
 - `STORAGE_MODE=text` utilise `/data/messages.txt` dans le volume Docker `simple-app_messages_data`, local à cette instance. `postgres` démarre aussi PostgreSQL et utilise `simple-app_postgres_data`. Changer de mode ne transfère pas les messages.
+- `IMAGE_STORAGE=local` conserve les images dans `/data/images`, dans le même volume persistant. `s3` utilise le raccordement S3 décrit ci-dessous. Le stockage des images est indépendant de celui des messages.
 - `SESSION_STORAGE=memory` garde les sessions côté serveur dans le processus web : un redémarrage déconnecte les utilisateurs. `file` utilise `/sessions` dans le volume local `simple-app_session_data` et conserve les sessions lors des redémarrages.
 - `APP_BIND=127.0.0.1` limite la publication au poste ou à la VM. `0.0.0.0` publie le port 8080 sur les interfaces de l’hôte ; les restrictions réseau doivent alors être définies séparément.
 - `APP_HOSTS=` vide accepte l’adresse d’accès sans filtrage de l’en-tête HTTP Host. Une liste facultative de noms ou d’IP séparés par des virgules active ce filtrage ; elle doit alors inclure les adresses d’accès ainsi que `localhost` et `127.0.0.1` pour les contrôles de santé. Le filtrage réseau ou au frontal reste nécessaire.
@@ -105,11 +108,15 @@ Le script transmet le hostname de la VM, et non celui du conteneur. Les sources 
 
 Le cookie de session conserve `HttpOnly` et `SameSite=Lax`, sans attribut `Secure` émis par l’application. Si cette protection est souhaitée côté navigateur, le LB doit ajouter explicitement `Secure` aux cookies, s’il propose cette fonction ; terminer TLS ne l’ajoute pas automatiquement.
 
-## Images dans un stockage objet S3
+## Images locales ou dans S3
 
-Chaque message peut contenir une image JPEG, PNG ou WebP de 5 Mio maximum. Le texte reste obligatoire. Le fichier est vérifié puis envoyé dans le bucket avec un nom unique ; ses octets sont conservés sans redimensionnement ni réencodage. La page réduit seulement son affichage en CSS. Le navigateur télécharge donc toujours l'original complet.
+Chaque message peut contenir une image JPEG, PNG ou WebP de 5 Mio maximum. Le texte reste obligatoire. Le fichier est vérifié puis enregistré avec un nom unique ; ses octets sont conservés sans redimensionnement ni réencodage. La page réduit seulement son affichage en CSS. Le navigateur télécharge donc toujours l'original complet.
 
-Le raccordement S3 utilise un override Compose indépendant, `/etc/simple-app/s3.yml`, ajouté automatiquement par `deploy.sh` lorsqu'il existe. Il fournit les paramètres suivants au service `web` :
+Choisir `IMAGE_STORAGE=local` ou `IMAGE_STORAGE=s3` dans `config.sh`, puis relancer `bash deploy.sh`. Changer de mode ne copie pas les images déjà enregistrées : leurs clés restent dans les messages, mais les fichiers doivent être transférés séparément si le backend change.
+
+En mode `local`, aucune configuration cloud n'est nécessaire. Les fichiers sous `/data/images` sont lisibles uniquement après connexion à l'application, via `/images/nom-du-fichier`. Le volume `/data` conserve les images lors d'un redémarrage ou d'une reconstruction du conteneur. Avec plusieurs web, monter le même stockage persistant sur `/data` pour que chaque instance puisse servir les originaux.
+
+En mode `s3`, le raccordement utilise un override Compose indépendant, `/etc/simple-app/s3.yml`, ajouté automatiquement par `deploy.sh` lorsqu'il existe. Il fournit les paramètres suivants au service `web` :
 
 - `S3_ENDPOINT_URL` : URL HTTPS de l'API S3.
 - `S3_REGION` : région utilisée pour la signature S3.
@@ -119,9 +126,9 @@ Le raccordement S3 utilise un override Compose indépendant, `/etc/simple-app/s3
 
 Le fichier privé appartient à UID/GID 1000 et possède les droits `0600` ; son dossier hôte est réservé à l'administrateur. Il reste hors du clone Git et de l'image Docker. Aucune clé secrète S3 n'est envoyée au navigateur. Les images utilisent des URL de lecture signées valables une heure, renouvelées à chaque affichage de la page ; leur détenteur peut les utiliser jusqu'à leur expiration.
 
-Sans configuration S3, les messages texte continuent à fonctionner. L'envoi d'une image sans raccordement ou pendant une panne S3 est refusé avec une erreur compréhensible ; il n'ajoute pas de message pointant vers une image absente. Si l'enregistrement du message échoue après l'envoi, l'application tente de retirer l'objet créé.
+Les messages texte restent disponibles si le stockage des images est indisponible. L'envoi d'une image pendant une panne est refusé avec une erreur compréhensible ; il n'ajoute pas de message pointant vers une image absente. Si l'enregistrement du message échoue après l'envoi, l'application tente de retirer le fichier ou l'objet créé.
 
-La requête complète est limitée à 6 Mio pour inclure le formulaire et son image ; le proxy HTTP placé devant l'application doit accepter cette taille. Le répertoire temporaire du conteneur est borné à 64 Mio. Les octets des images ne sont stockés ni dans les messages, ni dans PostgreSQL : seule leur clé S3 est conservée avec le texte.
+La requête complète est limitée à 6 Mio pour inclure le formulaire et son image ; le proxy HTTP placé devant l'application doit accepter cette taille. Le répertoire temporaire du conteneur est borné à 64 Mio. Les octets des images ne sont stockés ni dans les messages, ni dans PostgreSQL : seule leur clé `images/identifiant.extension` est conservée avec le texte.
 
 Pour conserver le raccordement lors d'une mise à jour, utiliser `bash deploy.sh`. Une commande Compose manuelle qui recrée le web doit inclure `-f docker-compose.yml -f /etc/simple-app/s3.yml`.
 
@@ -154,7 +161,7 @@ Depuis ce dossier, avec un moteur Docker actif et Compose V2 :
 ```bash
 docker compose build
 docker run --rm --user 0 --volume "${PWD}/secrets:/credentials" simple-app-web python prepare_secrets.py
-STORAGE_MODE=text SESSION_STORAGE=memory APP_BIND=127.0.0.1 APP_HOSTS= INSTANCE_HOSTNAME="$(hostname)" docker compose up -d --no-build --wait --wait-timeout 120
+STORAGE_MODE=text IMAGE_STORAGE=local SESSION_STORAGE=memory APP_BIND=127.0.0.1 APP_HOSTS= INSTANCE_HOSTNAME="$(hostname)" docker compose up -d --no-build --wait --wait-timeout 120
 ```
 
 Pour PostgreSQL, utiliser `STORAGE_MODE=postgres` et ajouter `--profile postgres` à la commande Compose. Vérifier le backend avec `curl --fail http://localhost:8080/health`, puis ouvrir [http://localhost:8080/](http://localhost:8080/) dans le navigateur. Consulter localement `secrets/password.txt` avec les droits nécessaires.
