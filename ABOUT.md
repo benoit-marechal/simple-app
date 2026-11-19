@@ -1,6 +1,6 @@
 Application web Python avec authentification, liste de messages, image facultative sur disque ou S3, hostname de l’instance, stockage fichier ou PostgreSQL et sessions côté serveur.
 
-- [README.md](README.md) · Commandes de lancement, d’installation sur Ubuntu 24.04 et d’exploitation.
+- [README.md](README.md) · Commandes d’installation sur Linux, de lancement et d’exploitation.
 - [app.py](app.py) · Gère les sessions, le formulaire texte et image, la lecture authentifiée des images locales et l'affichage des messages et du hostname.
 - [messages.py](messages.py) · Enregistre le texte daté et la clé de l'image en JSONL ou PostgreSQL ; conserve les anciens messages, les verrous et les limites.
 - [object_storage.py](object_storage.py) · Vérifie les images sans les transformer, conserve les originaux sur disque ou dans S3 et fournit leur adresse de lecture.
@@ -13,7 +13,7 @@ Application web Python avec authentification, liste de messages, image facultati
 - [test_messages.py](test_messages.py) · Vérifie le format, les références d'image, la compatibilité des anciens messages et les limites du fichier.
 - [test_object_storage.py](test_object_storage.py) · Vérifie les formats, les limites, les originaux locaux, les chemins autorisés et les signatures S3 sans accès cloud.
 - [test_app_images.py](test_app_images.py) · Vérifie le formulaire multipart, CSRF, les retours arrière, l'accès privé aux images locales et la lecture des textes pendant une panne d'images.
-- [install.sh](install.sh) · Installe Docker et Compose sur Ubuntu 24.04 et active le service Docker.
+- [install.sh](install.sh) · Prépare Docker, Compose et Buildx sur Debian et Ubuntu, puis active le service Docker. Réutilise une installation compatible sur les autres Linux.
 - [build.sh](build.sh) · Construit l’image Python sans démarrer l’application.
 - [deploy.sh](deploy.sh) · Prépare les identifiants, conserve le raccordement S3 externe, démarre les services selon la configuration et vérifie leur santé HTTP.
 - [prepare_secrets.py](prepare_secrets.py) · Génère une seule fois les fichiers privés de signature et de mot de passe dans le dossier de déploiement exclu de Git.

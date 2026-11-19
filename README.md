@@ -2,13 +2,13 @@
 
 Un formulaire enregistre des messages dans un fichier ou PostgreSQL 16, avec une image facultative stockée sur disque ou dans un service compatible S3. Chaque nouveau message contient sa date et son heure avec les secondes, à l’heure de Paris, puis le login de son auteur : `15/11/2026 14:32:08 - benoit: Bonjour`. Le login vient de la session connectée. Les anciens messages restent lisibles, sans date ni auteur ajoutés rétroactivement. La page affiche aussi le hostname de la VM. Le web utilise Python 3.12, Flask, psycopg 3 et Gunicorn.
 
-## Installer sur une VM Ubuntu 24.04
+## Installer sur une VM Linux
 
 L’application écoute en HTTP sur le port 8080 et permet la connexion directement en HTTP. TLS est géré par un répartiteur externe (LB), dont la configuration est indépendante de ce dépôt. Sans LB HTTPS, le mot de passe et le cookie circulent en clair : réserver l’accès direct aux identifiants et messages de démonstration.
 
 ### Récupérer les sources depuis GitHub
 
-Se connecter en SSH à la VM Ubuntu, généralement avec le compte `ubuntu`. Exécuter les commandes suivantes **sur cette VM**, avec un compte disposant de `sudo`, pour cloner le [dépôt GitHub public](https://github.com/benoit-marechal/simple-app) en HTTPS :
+Se connecter en SSH à la VM avec un compte disposant de `sudo`. Sur Debian ou Ubuntu, installer Git avec APT. Sur un autre Linux, utiliser le gestionnaire de paquets de la distribution. Une fois Git disponible, cloner le [dépôt GitHub public](https://github.com/benoit-marechal/simple-app) en HTTPS.
 
 ```bash
 sudo apt-get update
@@ -57,7 +57,9 @@ bash build.sh
 bash deploy.sh
 ```
 
-- `install.sh` vérifie Ubuntu 24.04, installe `docker.io`, `docker-compose-v2`, `docker-buildx` et `curl`, puis active Docker. Le dépôt Ubuntu `universe` doit être activé.
+- `install.sh` réutilise Docker s’il fournit Buildx et un Compose avec `up --wait-timeout`. Si ces outils manquent, le script utilise APT sur Debian et Ubuntu. Il ajoute le dépôt officiel Docker lorsque les paquets de la distribution sont insuffisants et utilise les versions publiées pour la suite APT de la VM. Une fois les outils disponibles, il active le service Docker via systemd.
+- Si APT signale un conflit entre Docker CE et le moteur ou le runtime déjà installé, traiter la coexistence des paquets avant de relancer. L’installation s’arrête si elle exige le retrait d’un paquet existant.
+- Sur un Linux sans APT, tel qu’AlmaLinux, installer au préalable Docker Engine, Buildx, Compose et `curl` via le gestionnaire de paquets de la distribution. Relancer ensuite le même `install.sh`.
 - `build.sh` construit l’image web sans lancer l’application.
 - `deploy.sh` génère les identifiants privés au premier lancement, conserve ceux déjà présents, ajoute l'override S3 s'il existe, démarre les services et vérifie `/health`.
 
@@ -271,4 +273,4 @@ runcmd:
 
 Ce fragment lance l’installation, la construction et le déploiement HTTP. Configurer séparément les règles réseau et le LB. La configuration livrée dans Git reste locale par défaut.
 
-Sources : paquets Ubuntu [Docker](https://packages.ubuntu.com/noble/docker.io), [Compose V2](https://packages.ubuntu.com/noble/docker-compose-v2), [Buildx](https://packages.ubuntu.com/noble/docker-buildx) et [commande Compose](https://docs.docker.com/reference/cli/docker/compose/up/).
+Références d’installation de Docker Engine. [Debian](https://docs.docker.com/engine/install/debian/) · [Ubuntu](https://docs.docker.com/engine/install/ubuntu/) · [Commande Compose up](https://docs.docker.com/reference/cli/docker/compose/up/)
